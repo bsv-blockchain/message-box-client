@@ -5,13 +5,13 @@ import tsStandard from 'ts-standard'
 import pluginJest from 'eslint-plugin-jest'
 
 export default [
-  tsStandard, // ✅ Ensure ESLint loads ts-standard as a base config
+  tsStandard,
 
   {
     // Add ignorePatterns at the top level for ESLint
     ignorePatterns: ['src/primitives/Point.ts'],
 
-    files: ['src/**/*.ts', '**/*.{js,mjs,cjs,ts,jsx,tsx}'], // ✅ Ensure TS files are included
+    files: ['src/**/*.ts', '**/*.{js,mjs,cjs,ts,jsx,tsx}'],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -20,8 +20,8 @@ export default [
       },
       parser: tseslint.parser,
       parserOptions: {
-        project: './tsconfig.json', // ✅ Ensure this file exists
-        tsconfigRootDir: process.cwd() // ✅ Use process.cwd() instead of import.meta.dirname
+        project: './tsconfig.json',
+        tsconfigRootDir: process.cwd()
       }
     },
     plugins: {
@@ -29,10 +29,9 @@ export default [
       jest: pluginJest
     },
     rules: {
-      ...tseslint.configs.recommended.rules, // ✅ TypeScript ESLint rules
-      ...pluginJs.configs.recommended.rules, // ✅ ESLint recommended rules
+      ...tseslint.configs.recommended.rules,
+      ...pluginJs.configs.recommended.rules,
 
-      // ✅ Jest-specific rules
       'jest/no-disabled-tests': 'warn',
       'jest/no-focused-tests': 'error',
       'jest/no-identical-title': 'error',

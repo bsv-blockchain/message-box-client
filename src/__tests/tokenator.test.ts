@@ -2,7 +2,6 @@
 import Tokenator from '../tokenator'
 import { WalletClient } from '@bsv/sdk'
 
-// ✅ Mock @bsv/sdk to ensure `AuthFetch` and `WalletClient` are properly handled
 jest.mock('@bsv/sdk', () => ({
   AuthFetch: jest.fn().mockImplementation(() => ({
     fetch: jest.fn().mockResolvedValue({ json: async () => ({}) })
@@ -16,7 +15,7 @@ describe('Tokenator', () => {
   let mockWalletClient: WalletClient = new WalletClient()
 
   beforeEach(() => {
-    mockWalletClient = new WalletClient() // ✅ Provide a valid WalletClient instance
+    mockWalletClient = new WalletClient()
   })
 
   afterEach(() => {
