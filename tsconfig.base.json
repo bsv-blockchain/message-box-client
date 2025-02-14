@@ -22,7 +22,7 @@
     "experimentalDecorators": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "types": ["jest"]  // ✅ Ensure Jest types are included
+    "types": ["jest"]
   },
   "include": [
     "src"

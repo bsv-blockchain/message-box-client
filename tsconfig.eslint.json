@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": [
-      "@types/node"
+      "@types/node",
+      "jest"
     ],
     "noEmit": true,
     "strict": true,
