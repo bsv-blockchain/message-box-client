@@ -64,6 +64,22 @@ class MessageBoxClient {
   }
 
   /**
+   * Getter to expose the identity key for testing purposes.
+   * Uncomment to run tests.
+   */
+  public get testIdentityKey (): string | undefined {
+    return this.myIdentityKey
+  }
+
+  /**
+   * Getter to expose the socket for testing purposes.
+   * Uncomment to run tests.
+   */
+  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+    return this.socket
+  }
+
+  /**
    * Establish an initial socket connection to a room
    * The room ID is based on your identityKey and the messageBox
    */
@@ -120,7 +136,7 @@ class MessageBoxClient {
   async sendLiveMessage ({ body, messageBox, recipient }: { body: string, messageBox: string, recipient: string }): Promise<void> {
     await this.initializeConnection()
 
-    if (this.socket == null) {
+    if (this.socket == null || this.socket === undefined) {
       throw new Error('WebSocket connection not initialized')
     }
 
