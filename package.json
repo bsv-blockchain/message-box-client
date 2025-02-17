@@ -8,6 +8,7 @@
     "dev": "nodemon --inspect=0.0.0.0 src/index.ts --watch .env --watch src --exec ts-node",
     "build": "tsc",
     "test": "jest",
+    "test:coverage": "jest --coverage --coverageReporters=text --coverageReporters=html",
     "test:watch": "jest --watch",
     "lint": "ts-standard --fix .",
     "clean": "rimraf dist node_modules && npm install",

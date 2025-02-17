@@ -1,4 +1,5 @@
 import { WalletClient, AuthFetch } from '@bsv/sdk'
+import { AuthSocketClient } from '@bsv/authsocket'
 
 /**
  * Defines the structure of a PeerServ Message
@@ -46,11 +47,11 @@ interface ListMessagesParams {
 /**
  * Extendable class for interacting with a PeerServ
  */
-class Tokenator {
+class MessageBoxClient {
   private readonly peerServHost: string
   public readonly authFetch: AuthFetch
   private readonly walletClient: WalletClient
-  private readonly joinedRooms: string[] = []
+  private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
 
   constructor ({
@@ -66,22 +67,30 @@ class Tokenator {
    * Establish an initial socket connection to a room
    * The room ID is based on your identityKey and the messageBox
    */
-  async initializeConnection (messageBox: string): Promise<string> {
-    if (this.myIdentityKey === null || this.myIdentityKey === undefined) {
+  async initializeConnection (): Promise<void> {
+    if (this.myIdentityKey == null || this.myIdentityKey === '') {
       const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
       this.myIdentityKey = keyResult.publicKey
     }
 
-    if (this.myIdentityKey == null || messageBox.trim().length === 0) {
-      throw new Error('Identity key or messageBox is missing')
+    if (this.myIdentityKey == null || this.myIdentityKey === '') {
+      throw new Error('Identity key is missing')
     }
 
-    const roomId = `${this.myIdentityKey}-${messageBox}`
-    if (!this.joinedRooms.includes(roomId)) {
-      this.joinedRooms.push(roomId)
-    }
+    // Initialize WebSocket connection only if not already connected
+    if (this.socket == null) {
+      this.socket = AuthSocketClient(this.peerServHost, {
+        wallet: this.walletClient
+      })
 
-    return roomId
+      this.socket.on('connect', () => {
+        console.log('Connected to MessageBox server via WebSocket')
+      })
+
+      this.socket.on('disconnect', () => {
+        console.log('Disconnected from MessageBox server')
+      })
+    }
   }
 
   /**
@@ -89,20 +98,36 @@ class Tokenator {
    */
   async listenForLiveMessages ({
     onMessage,
-    messageBox,
-    autoAcknowledge = true
-  }: { onMessage: (message: PeerServMessage) => void, messageBox: string, autoAcknowledge?: boolean }): Promise<void> {
-    await this.initializeConnection(messageBox)
+    messageBox
+  }: { onMessage: (message: any) => void, messageBox: string }): Promise<void> {
+    await this.initializeConnection()
+
+    if (this.socket == null) {
+      throw new Error('WebSocket connection not initialized')
+    }
+
+    const roomId = `${this.myIdentityKey ?? ''}-${messageBox}`
+    this.socket.emit('joinRoom', roomId)
+
+    this.socket.on(`sendMessage-${roomId}`, (message) => {
+      onMessage(message)
+    })
   }
 
   /**
    * Send a message over sockets, with a backup of messageBox delivery
    */
-  async sendLiveMessage ({ body, messageBox, recipient }: SendMessageParams): Promise<void> {
-    await this.initializeConnection(messageBox)
+  async sendLiveMessage ({ body, messageBox, recipient }: { body: string, messageBox: string, recipient: string }): Promise<void> {
+    await this.initializeConnection()
+
+    if (this.socket == null) {
+      throw new Error('WebSocket connection not initialized')
+    }
+
     if (recipient.trim() === '') {
       throw new Error('Recipient cannot be empty')
     }
+
     const hmac = await this.walletClient.createHmac({
       protocolID: [0, 'PeerServ'],
       keyID: '1',
@@ -112,18 +137,16 @@ class Tokenator {
 
     const messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
 
-    try {
-      await this.sendMessage({ recipient, messageBox, body, messageId })
-    } catch (error: any) {
-      if ((error as Error).message.includes('Payment required')) {
-        console.warn('Payment required for live message:', error)
-
-        // Retry sending with payment if necessary
-        await this.sendMessage({ recipient, messageBox, body, messageId })
-      } else {
-        throw error // Other errors should still be thrown
+    this.socket.emit('sendMessage', {
+      roomId: `${recipient}-${messageBox}`,
+      message: {
+        sender: this.myIdentityKey,
+        recipient,
+        messageBox,
+        messageId,
+        body
       }
-    }
+    })
   }
 
   /**
@@ -150,50 +173,11 @@ class Tokenator {
     const messageId = message.messageId ??
       Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
 
-    let response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+    const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: { ...message, messageId, body: JSON.stringify(message.body) } })
     })
-
-    // Check if payment is required
-    if (response.status === 402) {
-      console.warn('402 Payment Required: Fetching payment details...')
-
-      const satoshisRequired = Number(response.headers.get('x-bsv-payment-satoshis-required'))
-      const derivationPrefix = response.headers.get('x-bsv-payment-derivation-prefix')
-
-      if (derivationPrefix === null || derivationPrefix === '' || isNaN(satoshisRequired)) {
-        throw new Error('Invalid payment request from server')
-      }
-
-      // Generate the payment transaction using the wallet
-      const paymentTransaction = await this.walletClient.createAction({
-        description: 'Payment for sending a message',
-        outputs: [
-          {
-            satoshis: satoshisRequired,
-            lockingScript: '', // Ensure the correct script is provided
-            outputDescription: 'Payment Output',
-            customInstructions: JSON.stringify({ derivationPrefix })
-          }
-        ]
-      })
-
-      // Retry request with payment included
-      response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-bsv-payment': JSON.stringify({
-            derivationPrefix,
-            derivationSuffix: 'user-specific-data', // Can be empty or used for metadata
-            transaction: paymentTransaction.tx // ✅ Correct property
-          })
-        },
-        body: JSON.stringify({ message: { ...message, messageId, body: JSON.stringify(message.body) } })
-      })
-    }
 
     const parsedResponse = await response.json()
 
@@ -249,4 +233,4 @@ class Tokenator {
   }
 }
 
-export default Tokenator
+export default MessageBoxClient

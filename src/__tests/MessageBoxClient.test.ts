@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import Tokenator from '../tokenator'
+import MessageBoxClient from '../MessageBoxClient'
 import { WalletClient } from '@bsv/sdk'
 
 jest.mock('@bsv/sdk', () => ({
@@ -11,7 +11,7 @@ jest.mock('@bsv/sdk', () => ({
   }))
 }))
 
-describe('Tokenator', () => {
+describe('MessageBoxClient', () => {
   let mockWalletClient: WalletClient = new WalletClient()
 
   beforeEach(() => {
@@ -54,43 +54,43 @@ describe('Tokenator', () => {
     })
   }
 
-  it('Creates an instance of the Tokenator class', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
+  it('Creates an instance of the MessageBoxClient class', async () => {
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
     const expectedInstance = {
       peerServHost: 'https://staging-peerserv.babbage.systems',
       joinedRooms: []
     }
 
-    expect(JSON.parse(JSON.stringify(tokenator))).toMatchObject(expectedInstance)
+    expect(JSON.parse(JSON.stringify(messageBoxClient))).toMatchObject(expectedInstance)
   }, 100000)
 
   it('Throws an error if a message does not contain a recipient', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    await expect(tokenator.sendMessage({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    await expect(messageBoxClient.sendMessage({
       messageBox: 'test_inbox',
       body: {}
     } as any)).rejects.toThrow('You must provide a message recipient!')
   }, 100000)
 
   it('Throws an error if a message does not contain a messageBox', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    await expect(tokenator.sendMessage({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    await expect(messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
       body: {}
     } as any)).rejects.toThrow('You must provide a messageBox to send this message into!')
   })
 
   it('Throws an error if a message does not contain a body', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    await expect(tokenator.sendMessage({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    await expect(messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
       messageBox: 'test_inbox'
     } as any)).rejects.toThrow('Every message must have a body!')
   })
 
   it('Sends a message', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    jest.spyOn(tokenator.authFetch, 'fetch').mockResolvedValue({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_SEND_RESULT.body),
       headers: new Headers(),
       ok: true,
@@ -108,7 +108,7 @@ describe('Tokenator', () => {
       text: jest.fn()
     } as unknown as Response)
 
-    const result = await tokenator.sendMessage({
+    const result = await messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
       messageBox: 'test_inbox',
       body: { data: 'test' }
@@ -118,8 +118,8 @@ describe('Tokenator', () => {
   })
 
   it('Lists available messages', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    jest.spyOn(tokenator.authFetch, 'fetch').mockResolvedValue({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_LIST_AND_READ_RESULT.body),
       headers: new Headers(),
       ok: true,
@@ -137,7 +137,7 @@ describe('Tokenator', () => {
       text: jest.fn()
     } as unknown as Response)
 
-    const result = await tokenator.listMessages({
+    const result = await messageBoxClient.listMessages({
       messageBox: 'test_inbox'
     })
 
@@ -145,8 +145,8 @@ describe('Tokenator', () => {
   })
 
   it('Acknowledges a message', async () => {
-    const tokenator = new Tokenator({ walletClient: mockWalletClient })
-    jest.spyOn(tokenator.authFetch, 'fetch').mockResolvedValue({
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_ACK_RESULT.body),
       headers: new Headers(),
       ok: true,
@@ -164,7 +164,7 @@ describe('Tokenator', () => {
       text: jest.fn()
     } as unknown as Response)
 
-    const result = await tokenator.acknowledgeMessage({
+    const result = await messageBoxClient.acknowledgeMessage({
       messageIds: [42]
     })
 
