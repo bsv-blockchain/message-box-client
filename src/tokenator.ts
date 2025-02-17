@@ -100,11 +100,9 @@ class Tokenator {
    */
   async sendLiveMessage ({ body, messageBox, recipient }: SendMessageParams): Promise<void> {
     await this.initializeConnection(messageBox)
-
     if (recipient.trim() === '') {
       throw new Error('Recipient cannot be empty')
     }
-
     const hmac = await this.walletClient.createHmac({
       protocolID: [0, 'PeerServ'],
       keyID: '1',
@@ -114,7 +112,18 @@ class Tokenator {
 
     const messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
 
-    await this.sendMessage({ recipient, messageBox, body, messageId })
+    try {
+      await this.sendMessage({ recipient, messageBox, body, messageId })
+    } catch (error: any) {
+      if ((error as Error).message.includes('Payment required')) {
+        console.warn('Payment required for live message:', error)
+
+        // Retry sending with payment if necessary
+        await this.sendMessage({ recipient, messageBox, body, messageId })
+      } else {
+        throw error // Other errors should still be thrown
+      }
+    }
   }
 
   /**
@@ -141,11 +150,50 @@ class Tokenator {
     const messageId = message.messageId ??
       Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
 
-    const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+    let response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: { ...message, messageId, body: JSON.stringify(message.body) } })
     })
+
+    // Check if payment is required
+    if (response.status === 402) {
+      console.warn('402 Payment Required: Fetching payment details...')
+
+      const satoshisRequired = Number(response.headers.get('x-bsv-payment-satoshis-required'))
+      const derivationPrefix = response.headers.get('x-bsv-payment-derivation-prefix')
+
+      if (derivationPrefix === null || derivationPrefix === '' || isNaN(satoshisRequired)) {
+        throw new Error('Invalid payment request from server')
+      }
+
+      // Generate the payment transaction using the wallet
+      const paymentTransaction = await this.walletClient.createAction({
+        description: 'Payment for sending a message',
+        outputs: [
+          {
+            satoshis: satoshisRequired,
+            lockingScript: '', // Ensure the correct script is provided
+            outputDescription: 'Payment Output',
+            customInstructions: JSON.stringify({ derivationPrefix })
+          }
+        ]
+      })
+
+      // Retry request with payment included
+      response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-bsv-payment': JSON.stringify({
+            derivationPrefix,
+            derivationSuffix: 'user-specific-data', // Can be empty or used for metadata
+            transaction: paymentTransaction.tx // ✅ Correct property
+          })
+        },
+        body: JSON.stringify({ message: { ...message, messageId, body: JSON.stringify(message.body) } })
+      })
+    }
 
     const parsedResponse = await response.json()
 

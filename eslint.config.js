@@ -6,11 +6,8 @@ import pluginJest from 'eslint-plugin-jest'
 
 export default [
   tsStandard,
-
   {
-    // Add ignorePatterns at the top level for ESLint
     ignorePatterns: ['src/primitives/Point.ts'],
-
     files: ['src/**/*.ts', '**/*.{js,mjs,cjs,ts,jsx,tsx}'],
     languageOptions: {
       globals: {
