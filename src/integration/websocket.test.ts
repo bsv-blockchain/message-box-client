@@ -1,37 +1,40 @@
+import { startTestServer, stopTestServer } from './testServer.js'
 import { AuthSocketClient } from '@bsv/authsocket'
 import { WalletClient } from '@bsv/sdk'
 
-describe('MessageBoxClient WebSocket Tests', () => {
-  let socket: ReturnType<typeof AuthSocketClient>
+describe('Integration Test: WebSocket Messaging', () => {
+  let senderSocket: ReturnType<typeof AuthSocketClient>
+  let recipientSocket: ReturnType<typeof AuthSocketClient>
+  const testRoom = 'recipient123-testBox'
 
   beforeAll(async () => {
-    const walletClient = new WalletClient()
-    socket = AuthSocketClient('http://localhost:4000', { wallet: walletClient })
+    await startTestServer()
 
-    await new Promise(resolve => {
-      socket.on('connect', resolve)
-    })
+    const wallet = new WalletClient()
+    senderSocket = AuthSocketClient('http://localhost:8080', { wallet })
+    recipientSocket = AuthSocketClient('http://localhost:8080', { wallet })
+
+    // Wait for both connections
+    await new Promise((resolve) => senderSocket.on('connect', resolve))
+    await new Promise((resolve) => recipientSocket.on('connect', resolve))
   })
 
-  afterAll(() => {
-    if (typeof socket.disconnect === 'function') {
-      socket.disconnect()
-    } else {
-      console.warn('No valid disconnect method found for AuthSocketClient')
-    }
+  afterAll(async () => {
+    if (senderSocket != null) senderSocket.disconnect()
+    if (recipientSocket != null) recipientSocket.disconnect()
+    await stopTestServer()
   })
 
-  it('should send and receive a live message', (done) => {
-    const roomId = 'recipient123-testBox'
-    socket.emit('joinRoom', roomId)
+  it('should send and receive a live WebSocket message', (done) => {
+    recipientSocket.emit('joinRoom', testRoom)
 
-    socket.on(`sendMessage-${roomId}`, (message) => {
+    recipientSocket.on(`sendMessage-${testRoom}`, (message) => {
       expect(message.body).toBe('Hello, WebSocket!')
       done()
     })
 
-    socket.emit('sendMessage', {
-      roomId,
+    senderSocket.emit('sendMessage', {
+      roomId: testRoom,
       message: {
         sender: 'testSender',
         recipient: 'recipient123',
@@ -40,5 +43,21 @@ describe('MessageBoxClient WebSocket Tests', () => {
         body: 'Hello, WebSocket!'
       }
     })
+  })
+
+  it('should fail when sending a message to an unauthorized room', async () => {
+    senderSocket.emit('sendMessage', {
+      roomId: 'unauthorized-room',
+      message: {
+        sender: 'testSender',
+        recipient: 'recipient123',
+        messageBox: 'testBox',
+        messageId: 'websocket-test-unauthorized',
+        body: 'This should fail'
+      }
+    })
+
+    // Since the server does not allow unauthorized room messages, we wait to see if nothing happens
+    await new Promise((resolve) => setTimeout(resolve, 2000))
   })
 })

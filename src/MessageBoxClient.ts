@@ -10,6 +10,7 @@ interface PeerServMessage {
   sender: string
   created_at: string
   updated_at: string
+  acknowledged?: boolean
 }
 
 /**

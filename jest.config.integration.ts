@@ -2,12 +2,16 @@ import type { JestConfigWithTsJest } from 'ts-jest'
 
 const config: JestConfigWithTsJest = {
   preset: 'ts-jest',
-  testEnvironment: 'jsdom', // The client runs in a browser
+  testEnvironment: 'node',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   transform: {
-    '^.+\\.ts?$': 'ts-jest'
+    '^.+\\.ts?$': ['ts-jest', { isolatedModules: true }]
   },
-  testMatch: ['**/test/integration/**/*.test.ts'], // Run only integration tests
+  moduleNameMapper: {
+    // Ensure Jest resolves TypeScript files without ".js" errors
+    '^(.*)\\.js$': '$1'
+  },
+  testMatch: ['**/src/integration/**/*.test.ts'], // Only run integration tests
   verbose: true,
   setupFilesAfterEnv: ['./jest.setup.client.ts'],
   globals: {
@@ -15,7 +19,7 @@ const config: JestConfigWithTsJest = {
       isolatedModules: true
     }
   },
-  testTimeout: 30000 // Allow longer timeouts for WebSocket tests
+  testTimeout: 30000
 }
 
 export default config
