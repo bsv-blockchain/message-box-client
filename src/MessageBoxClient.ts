@@ -85,14 +85,26 @@ class MessageBoxClient {
    * The room ID is based on your identityKey and the messageBox
    */
   async initializeConnection (): Promise<void> {
+    console.log('[CLIENT] initializeConnection() called')
+
     if (this.myIdentityKey == null || this.myIdentityKey === '') {
-      const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
-      this.myIdentityKey = keyResult.publicKey
+      console.log('[CLIENT] Fetching identity key...')
+      try {
+        const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
+        this.myIdentityKey = keyResult.publicKey
+        console.log(`[CLIENT] Identity key fetched: ${this.myIdentityKey}`)
+      } catch (error) {
+        console.error('[CLIENT ERROR] Failed to fetch identity key:', error)
+        throw new Error('Identity key retrieval failed')
+      }
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey === '') {
+      console.error('[CLIENT ERROR] Identity key is missing!')
       throw new Error('Identity key is missing')
     }
+
+    console.log('[CLIENT] Setting up WebSocket connection...')
 
     // Initialize WebSocket connection only if not already connected
     if (this.socket == null) {
@@ -101,11 +113,18 @@ class MessageBoxClient {
       })
 
       this.socket.on('connect', () => {
-        console.log('Connected to MessageBox server via WebSocket')
+        console.log('[CLIENT] Connected to WebSocket. Sending authentication data...')
+
+        // Send the identity key to the server
+        this.socket.emit('authenticate', { identityKey: this.myIdentityKey })
       })
 
       this.socket.on('disconnect', () => {
-        console.log('Disconnected from MessageBox server')
+        console.log('[CLIENT] Disconnected from MessageBox server')
+      })
+
+      this.socket.on('error', (error) => {
+        console.error('[CLIENT ERROR] WebSocket error:', error)
       })
     }
   }

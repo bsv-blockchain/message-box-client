@@ -10,6 +10,7 @@ describe('Integration Test: sendMessage (Payment Handling)', () => {
     await startTestServer()
     wallet = new WalletClient()
     client = new MessageBoxClient({ peerServHost: 'http://localhost:3000', walletClient: wallet })
+    await client.initializeConnection()
   })
 
   afterAll(async () => {
