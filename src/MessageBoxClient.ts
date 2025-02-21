@@ -116,7 +116,11 @@ class MessageBoxClient {
         console.log('[CLIENT] Connected to WebSocket. Sending authentication data...')
 
         // Send the identity key to the server
-        this.socket.emit('authenticate', { identityKey: this.myIdentityKey })
+        if (this.socket !== null && this.socket !== undefined) {
+          this.socket.emit('authenticate', { identityKey: this.myIdentityKey })
+        } else {
+          console.error('[CLIENT ERROR] Attempted to use WebSocket before initialization')
+        }
       })
 
       this.socket.on('disconnect', () => {
