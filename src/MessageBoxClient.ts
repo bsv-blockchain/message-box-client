@@ -35,7 +35,7 @@ interface SendMessageResponse {
  * Defines the structure of a request to acknowledge messages
  */
 interface AcknowledgeMessageParams {
-  messageIds: number[]
+  messageIds: string[]
 }
 
 /**
