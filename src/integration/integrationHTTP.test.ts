@@ -3,12 +3,15 @@ import MessageBoxClient from '../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
+// Ensure Jest doesn't mock WalletClient
+jest.unmock('@bsv/sdk')
+
 (global as any).self = { crypto: webcrypto }
 
-// Initialize WalletClient using Meta Net Client (MNC)
-const walletClient = new WalletClient('auto')
+// Explicitly initialize WalletClient with Meta Net Client (MNC)
+const walletClient = new WalletClient('json-api', 'localhost')
 
-// Initialize MessageBoxClient with the real wallet client
+// Initialize MessageBoxClient with the correct WalletClient
 const messageBoxClient = new MessageBoxClient({
   peerServHost: 'http://localhost:8080',
   walletClient
@@ -21,22 +24,26 @@ describe('MessageBoxClient HTTP Integration Tests', () => {
   const testMessage = 'Hello, this is an integration test.'
 
   beforeAll(async () => {
-    // Retrieve the recipient's public key
-    const publicKeyResponse = await walletClient.getPublicKey({ identityKey: true })
+    try {
+      console.log('[DEBUG] Attempting to retrieve public key...')
 
-    // Log the raw response
-    console.log('[DEBUG] Raw getPublicKey Response:', publicKeyResponse)
+      // Retrieve the recipient's public key
+      const publicKeyResponse = await walletClient.getPublicKey({ identityKey: true })
 
-    // Log the actual public key
-    console.log('[DEBUG] Retrieved Public Key:', publicKeyResponse.publicKey)
+      // Log the raw response
+      console.log('[DEBUG] Raw getPublicKey Response:', publicKeyResponse)
 
-    // Validate and assign recipientKey
-    if (publicKeyResponse.publicKey === undefined || publicKeyResponse.publicKey === null || typeof publicKeyResponse.publicKey !== 'string' || publicKeyResponse.publicKey === '') {
-      throw new Error('[ERROR] getPublicKey returned an invalid key!')
+      // Validate and assign recipientKey
+      if (!publicKeyResponse?.publicKey || typeof publicKeyResponse.publicKey !== 'string') {
+        throw new Error('[ERROR] getPublicKey returned an invalid key!')
+      }
+
+      recipientKey = publicKeyResponse.publicKey
+      console.log('[DEBUG] Successfully assigned recipientKey:', recipientKey)
+    } catch (error) {
+      console.error('[ERROR] Failed to retrieve public key:', error)
+      throw error // Ensure test fails if retrieval is unsuccessful
     }
-
-    recipientKey = publicKeyResponse.publicKey
-    console.log('[DEBUG] Assigned recipientKey:', recipientKey)
   })
 
   /** TEST 1: Send a Message with Payment **/
