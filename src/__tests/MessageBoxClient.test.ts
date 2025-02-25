@@ -152,7 +152,7 @@ describe('MessageBoxClient', () => {
       status: 200
     } as unknown as Response)
 
-    const result = await messageBoxClient.acknowledgeMessage({ messageIds: [42] })
+    const result = await messageBoxClient.acknowledgeMessage({ messageIds: ['42'] })
 
     expect(result).toEqual(200)
   })
@@ -195,7 +195,7 @@ describe('MessageBoxClient', () => {
         json: async () => ({ status: 'error', description: 'Failed to acknowledge messages' })
       } as unknown as Response)
 
-    await expect(messageBoxClient.acknowledgeMessage({ messageIds: [42] }))
+    await expect(messageBoxClient.acknowledgeMessage({ messageIds: ['42'] }))
       .rejects.toThrow('Failed to acknowledge messages')
   })
 
