@@ -21,6 +21,7 @@ interface SendMessageParams {
   messageBox: string
   body: string | object
   messageId?: string
+  payment?: { satoshisPaid: number }
 }
 
 /**
@@ -65,24 +66,22 @@ class MessageBoxClient {
   }
 
   /**
-   * Getter to expose the identity key for testing purposes.
-   * Uncomment to run tests.
+   * Calculates the required payment for sending a message.
+   * This function matches the pricing logic on the server.
    */
-  public get testIdentityKey (): string | undefined {
-    return this.myIdentityKey
+  calculateMessagePrice (message: string, priority: boolean = false): number {
+    const basePrice = 500 // Base fee in satoshis
+    const sizeFactor = Math.ceil(Buffer.byteLength(message, 'utf8') / 1024) * 50 // 50 satoshis per KB
+    const priorityFee = priority ? 200 : 0 // Additional fee for priority messages
+
+    const totalPrice = basePrice + sizeFactor + priorityFee
+    console.log(`[CLIENT] Calculated message price: ${totalPrice} satoshis`)
+
+    return totalPrice
   }
 
   /**
-   * Getter to expose the socket for testing purposes.
-   * Uncomment to run tests.
-   */
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
-    return this.socket
-  }
-
-  /**
-   * Establish an initial socket connection to a room
-   * The room ID is based on your identityKey and the messageBox
+   * Establish an initial WebSocket connection (optional)
    */
   async initializeConnection (): Promise<void> {
     console.log('[CLIENT] initializeConnection() called')
@@ -106,16 +105,11 @@ class MessageBoxClient {
 
     console.log('[CLIENT] Setting up WebSocket connection...')
 
-    // Initialize WebSocket connection only if not already connected
     if (this.socket == null) {
-      this.socket = AuthSocketClient(this.peerServHost, {
-        wallet: this.walletClient
-      })
+      this.socket = AuthSocketClient(this.peerServHost, { wallet: this.walletClient })
 
       this.socket.on('connect', () => {
         console.log('[CLIENT] Connected to WebSocket. Sending authentication data...')
-
-        // Send the identity key to the server
         if (this.socket !== null && this.socket !== undefined) {
           this.socket.emit('authenticate', { identityKey: this.myIdentityKey })
         } else {
@@ -134,63 +128,7 @@ class MessageBoxClient {
   }
 
   /**
-   * Start listening on your "public" message room
-   */
-  async listenForLiveMessages ({
-    onMessage,
-    messageBox
-  }: { onMessage: (message: any) => void, messageBox: string }): Promise<void> {
-    await this.initializeConnection()
-
-    if (this.socket == null) {
-      throw new Error('WebSocket connection not initialized')
-    }
-
-    const roomId = `${this.myIdentityKey ?? ''}-${messageBox}`
-    this.socket.emit('joinRoom', roomId)
-
-    this.socket.on(`sendMessage-${roomId}`, (message) => {
-      onMessage(message)
-    })
-  }
-
-  /**
-   * Send a message over sockets, with a backup of messageBox delivery
-   */
-  async sendLiveMessage ({ body, messageBox, recipient }: { body: string, messageBox: string, recipient: string }): Promise<void> {
-    await this.initializeConnection()
-
-    if (this.socket == null || this.socket === undefined) {
-      throw new Error('WebSocket connection not initialized')
-    }
-
-    if (recipient.trim() === '') {
-      throw new Error('Recipient cannot be empty')
-    }
-
-    const hmac = await this.walletClient.createHmac({
-      protocolID: [0, 'PeerServ'],
-      keyID: '1',
-      data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
-      counterparty: recipient
-    })
-
-    const messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
-
-    this.socket.emit('sendMessage', {
-      roomId: `${recipient}-${messageBox}`,
-      message: {
-        sender: this.myIdentityKey,
-        recipient,
-        messageBox,
-        messageId,
-        body
-      }
-    })
-  }
-
-  /**
-   * Sends a message to a PeerServ recipient
+   * Sends a message via HTTP
    */
   async sendMessage (message: SendMessageParams): Promise<SendMessageResponse> {
     if (message.recipient == null || message.recipient.trim() === '') {
@@ -203,36 +141,87 @@ class MessageBoxClient {
       throw new Error('Every message must have a body!')
     }
 
-    const hmac = await this.walletClient.createHmac({
-      data: Array.from(new TextEncoder().encode(JSON.stringify(message.body))),
-      protocolID: [0, 'PeerServ'],
-      keyID: '1',
-      counterparty: message.recipient
-    })
+    // Calculate required payment
+    const requiredSatoshis = this.calculateMessagePrice(JSON.stringify(message.body), false)
+    console.log(`[CLIENT] Calculated message price: ${requiredSatoshis} satoshis`)
 
-    const messageId = message.messageId ??
-      Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
-
-    const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: { ...message, messageId, body: JSON.stringify(message.body) } })
-    })
-
-    const parsedResponse = await response.json()
-
-    if (parsedResponse.status === 'error') {
-      throw new Error(parsedResponse.description)
+    // Generate HMAC
+    let messageId: string
+    try {
+      const hmac = await this.walletClient.createHmac({
+        data: Array.from(new TextEncoder().encode(JSON.stringify(message.body))),
+        protocolID: [0, 'PeerServ'],
+        keyID: '1',
+        counterparty: message.recipient
+      })
+      messageId = message.messageId ?? Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+    } catch (error) {
+      console.error('[CLIENT ERROR] Failed to generate HMAC:', error)
+      throw new Error('Failed to generate message identifier.')
     }
 
-    return { ...parsedResponse, messageId }
+    console.log(`[CLIENT] Sending message with ID ${messageId} and payment: ${requiredSatoshis} satoshis`)
+
+    const requestBody = {
+      message: { ...message, messageId, body: JSON.stringify(message.body) },
+      payment: { satoshisPaid: requiredSatoshis }
+    }
+
+    try {
+      console.log('[CLIENT] Sending HTTP request to:', `${this.peerServHost}/sendMessage`)
+      console.log('[CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
+
+      // Set a manual timeout using Promise.race()
+      const timeoutPromise = new Promise<Response>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('[CLIENT ERROR] Request timed out!')), 10000)
+      )
+
+      console.log('[CLIENT] Awaiting response from:', `${this.peerServHost}/sendMessage`)
+
+      // Attempt to fetch, racing against timeout
+      const response = await Promise.race([
+        this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        }),
+        timeoutPromise
+      ])
+
+      console.log('[CLIENT] Raw Response:', response)
+
+      const rawResponseText = await response.text()
+      console.log('[CLIENT] Raw Response Body:', rawResponseText)
+
+      if (!response.ok) {
+        console.error(`[CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`)
+        throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`)
+      }
+
+      const parsedResponse = await response.json()
+      console.log('[CLIENT] Received Response:', JSON.stringify(parsedResponse, null, 2))
+
+      if (parsedResponse.status !== 'success') {
+        console.error(`[CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`)
+        throw new Error(parsedResponse.description ?? 'Unknown error from server.')
+      }
+
+      console.log('[CLIENT] Message successfully sent.')
+      return { ...parsedResponse, messageId }
+    } catch (error) {
+      console.error('[CLIENT ERROR] Network or timeout error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      throw new Error(`Failed to send message: ${errorMessage}`)
+    }
   }
 
   /**
    * Lists messages from PeerServ
    */
   async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerServMessage[]> {
-    if (messageBox.trim() === '') throw new Error('MessageBox cannot be empty')
+    if (messageBox.trim() === '') {
+      throw new Error('MessageBox cannot be empty')
+    }
 
     const response = await this.authFetch.fetch(`${this.peerServHost}/listMessages`, {
       method: 'POST',
