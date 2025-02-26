@@ -172,34 +172,51 @@ class MessageBoxClient {
       console.log('[CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
 
       // Set a manual timeout using Promise.race()
-      const timeoutPromise = new Promise<Response>((_resolve, reject) =>
-        setTimeout(() => reject(new Error('[CLIENT ERROR] Request timed out!')), 10000)
-      )
+      // const timeoutPromise = new Promise<Response>((_resolve, reject) =>
+      //   setTimeout(() => reject(new Error('[CLIENT ERROR] Request timed out!')), 10000)
+      // )
 
-      console.log('[CLIENT] Awaiting response from:', `${this.peerServHost}/sendMessage`)
+      // Ensure the identity key is fetched before sending
+      if (this.myIdentityKey == null || this.myIdentityKey === '') {
+        try {
+          const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
+          this.myIdentityKey = keyResult.publicKey
+          console.log(`[CLIENT] Fetched identity key before sending request: ${this.myIdentityKey}`)
+        } catch (error) {
+          console.error('[CLIENT ERROR] Failed to fetch identity key:', error)
+          throw new Error('Identity key retrieval failed')
+        }
+      }
 
-      // Attempt to fetch, racing against timeout
-      const response = await Promise.race([
-        this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        }),
-        timeoutPromise
-      ])
+      // Now create the headers AFTER ensuring identityKey is set
+      const authHeaders = {
+        'Content-Type': 'application/json'
+      }
 
+      console.log('[CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
+
+      const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(requestBody)
+      })
+
+      // Debug: Check if bodyUsed before reading
       console.log('[CLIENT] Raw Response:', response)
+      console.log('[CLIENT] Response Body Used?', response.bodyUsed)
 
-      const rawResponseText = await response.text()
-      console.log('[CLIENT] Raw Response Body:', rawResponseText)
+      // Read body only if it's not already consumed
+      if (response.bodyUsed) {
+        throw new Error('[CLIENT ERROR] Response body has already been used!')
+      }
+
+      const parsedResponse = await response.json()
+      console.log('[CLIENT] Raw Response Body:', parsedResponse)
 
       if (!response.ok) {
         console.error(`[CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`)
         throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`)
       }
-
-      const parsedResponse = await response.json()
-      console.log('[CLIENT] Received Response:', JSON.stringify(parsedResponse, null, 2))
 
       if (parsedResponse.status !== 'success') {
         console.error(`[CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`)
