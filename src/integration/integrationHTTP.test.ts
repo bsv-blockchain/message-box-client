@@ -61,10 +61,15 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
 
   /** TEST 1: Send a Message with Correct Payment **/
   test('should send a message successfully with correct payment', async () => {
+    const requiredPayment = messageBoxClient.calculateMessagePrice(testMessage) // Ensure correct calculation
+
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage
+      body: testMessage,
+      payment: {
+        satoshisPaid: requiredPayment // Include the required payment
+      }
     })
 
     console.log('[DEBUG] SendMessage Response:', response)
@@ -88,7 +93,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
 
   /** TEST 3: Send Message with Insufficient Payment (Expect 402) **/
   test('should fail if payment is less than required', async () => {
-    const insufficientPayment = messageBoxClient.calculateMessagePrice(testMessage) - 100
+    const insufficientPayment = 1 // Less than required
 
     await expect(
       messageBoxClient.sendMessage({

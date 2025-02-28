@@ -163,8 +163,7 @@ class MessageBoxClient {
     console.log(`[CLIENT] Sending message with ID ${messageId} and payment: ${requiredSatoshis} satoshis`)
 
     const requestBody = {
-      message: { ...message, messageId, body: JSON.stringify(message.body) },
-      payment: { satoshisPaid: requiredSatoshis }
+      message: { ...message, messageId, body: JSON.stringify(message.body) }
     }
 
     try {
