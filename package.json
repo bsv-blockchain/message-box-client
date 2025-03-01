@@ -48,10 +48,10 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
-    "@bsv/auth-express-middleware": "^1.0.2",
+    "@bsv/auth-express-middleware": "^1.0.6",
     "@bsv/authsocket": "^1.0.0",
-    "@bsv/payment-express-middleware": "^1.0.1",
-    "@bsv/sdk": "^1.3.25",
+    "@bsv/payment-express-middleware": "^1.0.3",
+    "@bsv/sdk": "^1.3.27",
     "axios": "^1.7.9"
   }
 }
