@@ -13,7 +13,6 @@ const config: JestConfigWithTsJest = {
   },
   testMatch: ['**/src/integration/**/*.test.ts'], // Only run integration tests
   verbose: true,
-  setupFilesAfterEnv: ['./jest.setup.client.ts'],
   globals: {
     'ts-jest': {
       isolatedModules: true

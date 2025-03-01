@@ -81,44 +81,53 @@ class MessageBoxClient {
   }
 
   /**
-   * Establish an initial WebSocket connection (optional)
-   */
+  * Establish an initial WebSocket connection (optional)
+  */
   async initializeConnection (): Promise<void> {
-    console.log('[CLIENT] initializeConnection() called')
+    console.log('[CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
 
-    if (this.myIdentityKey == null || this.myIdentityKey === '') {
+    if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
       console.log('[CLIENT] Fetching identity key...')
       try {
         const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
         this.myIdentityKey = keyResult.publicKey
-        console.log(`[CLIENT] Identity key fetched: ${this.myIdentityKey}`)
+        console.log(`[CLIENT] Identity key fetched successfully: ${this.myIdentityKey}`)
       } catch (error) {
         console.error('[CLIENT ERROR] Failed to fetch identity key:', error)
         throw new Error('Identity key retrieval failed')
       }
     }
 
-    if (this.myIdentityKey == null || this.myIdentityKey === '') {
-      console.error('[CLIENT ERROR] Identity key is missing!')
+    if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
+      console.error('[CLIENT ERROR] Identity key is still missing after retrieval!')
       throw new Error('Identity key is missing')
     }
 
     console.log('[CLIENT] Setting up WebSocket connection...')
 
-    if (this.socket == null) {
+    if (!this.socket) {
       this.socket = AuthSocketClient(this.peerServHost, { wallet: this.walletClient })
 
+      let identitySent = false
+
       this.socket.on('connect', () => {
-        console.log('[CLIENT] Connected to WebSocket. Sending authentication data...')
-        if (this.socket !== null && this.socket !== undefined) {
-          this.socket.emit('authenticate', { identityKey: this.myIdentityKey })
-        } else {
-          console.error('[CLIENT ERROR] Attempted to use WebSocket before initialization')
+        console.log('[CLIENT] Connected to WebSocket.')
+
+        if (!identitySent) {
+          console.log('[CLIENT] Sending authentication data:', this.myIdentityKey)
+          if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
+            console.error('[CLIENT ERROR] Cannot send authentication: Identity key is missing!')
+          } else {
+            this.socket?.emit('authenticated', { identityKey: this.myIdentityKey })
+            identitySent = true
+          }
         }
       })
 
       this.socket.on('disconnect', () => {
         console.log('[CLIENT] Disconnected from MessageBox server')
+        this.socket = undefined
+        identitySent = false
       })
 
       this.socket.on('error', (error) => {
