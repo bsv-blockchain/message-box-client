@@ -108,6 +108,7 @@ class MessageBoxClient {
       this.socket = AuthSocketClient(this.peerServHost, { wallet: this.walletClient })
 
       let identitySent = false
+      let authenticated = false
 
       this.socket.on('connect', () => {
         console.log('[CLIENT] Connected to WebSocket.')
@@ -123,14 +124,39 @@ class MessageBoxClient {
         }
       })
 
+      // Listen for authentication success from the server
+      this.socket.on('authenticationSuccess', (data) => {
+        console.log(`[CLIENT] WebSocket authentication successful: ${JSON.stringify(data)}`)
+        authenticated = true
+      })
+
+      // Handle authentication failures
+      this.socket.on('authenticationFailed', (data) => {
+        console.error(`[CLIENT ERROR] WebSocket authentication failed: ${JSON.stringify(data)}`)
+        authenticated = false
+      })
+
       this.socket.on('disconnect', () => {
         console.log('[CLIENT] Disconnected from MessageBox server')
         this.socket = undefined
         identitySent = false
+        authenticated = false
       })
 
       this.socket.on('error', (error) => {
         console.error('[CLIENT ERROR] WebSocket error:', error)
+      })
+
+      // Wait for authentication confirmation before proceeding
+      await new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          if (authenticated) {
+            console.log('[CLIENT] WebSocket fully authenticated and ready!')
+            resolve()
+          } else {
+            reject(new Error('[CLIENT ERROR] WebSocket authentication timed out!'))
+          }
+        }, 5000) // Timeout after 5 seconds
       })
     }
   }
