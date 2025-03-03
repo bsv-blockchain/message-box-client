@@ -30,7 +30,7 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
 
   afterAll(async () => {
     console.log('Closing WebSocket connection after tests.')
-    await messageBoxClient.disconnect() // Use the new method
+    await messageBoxClient.disconnectWebSocket() // Use the new method
   })
 
   /** TEST 1: Authenticate WebSocket Connection **/

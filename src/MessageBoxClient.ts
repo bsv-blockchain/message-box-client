@@ -70,11 +70,10 @@ class MessageBoxClient {
    * This function matches the pricing logic on the server.
    */
   calculateMessagePrice (message: string, priority: boolean = false): number {
-    const basePrice = 500 // Base fee in satoshis
-    const sizeFactor = Math.ceil(Buffer.byteLength(message, 'utf8') / 1024) * 50 // 50 satoshis per KB
-    const priorityFee = priority ? 200 : 0 // Additional fee for priority messages
+    const basePrice = 2 // Base fee in satoshis
+    const sizeFactor = Math.ceil(Buffer.byteLength(message, 'utf8') / 1024) * 3 // 50 satoshis per KB
 
-    const totalPrice = basePrice + sizeFactor + priorityFee
+    const totalPrice = basePrice + sizeFactor
     console.log(`[CLIENT] Calculated message price: ${totalPrice} satoshis`)
 
     return totalPrice
@@ -86,7 +85,7 @@ class MessageBoxClient {
   async initializeConnection (): Promise<void> {
     console.log('[CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
 
-    if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
+    if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
       console.log('[CLIENT] Fetching identity key...')
       try {
         const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
@@ -98,14 +97,14 @@ class MessageBoxClient {
       }
     }
 
-    if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
+    if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
       console.error('[CLIENT ERROR] Identity key is still missing after retrieval!')
       throw new Error('Identity key is missing')
     }
 
     console.log('[CLIENT] Setting up WebSocket connection...')
 
-    if (!this.socket) {
+    if (this.socket == null) {
       this.socket = AuthSocketClient(this.peerServHost, { wallet: this.walletClient })
 
       let identitySent = false
@@ -115,7 +114,7 @@ class MessageBoxClient {
 
         if (!identitySent) {
           console.log('[CLIENT] Sending authentication data:', this.myIdentityKey)
-          if (!this.myIdentityKey || this.myIdentityKey.trim() === '') {
+          if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
             console.error('[CLIENT ERROR] Cannot send authentication: Identity key is missing!')
           } else {
             this.socket?.emit('authenticated', { identityKey: this.myIdentityKey })
@@ -133,6 +132,115 @@ class MessageBoxClient {
       this.socket.on('error', (error) => {
         console.error('[CLIENT ERROR] WebSocket error:', error)
       })
+    }
+  }
+
+  /**
+ * Tracks rooms the client has already joined
+ */
+  private readonly joinedRooms: Set<string> = new Set()
+
+  /**
+   * Join a WebSocket room before sending messages
+   */
+  async joinRoom (messageBox: string): Promise<void> {
+    console.log(`[CLIENT] Attempting to join WebSocket room: ${messageBox}`)
+
+    // Ensure WebSocket connection is established first
+    if (this.socket == null) {
+      console.log('[CLIENT] No WebSocket connection. Initializing...')
+      await this.initializeConnection()
+    }
+
+    if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
+      throw new Error('[CLIENT ERROR] Identity key is not defined')
+    }
+
+    const roomId = `${this.myIdentityKey ?? ''}-${messageBox}`
+
+    if (this.joinedRooms.has(roomId)) {
+      console.log(`[CLIENT] Already joined WebSocket room: ${roomId}`)
+      return
+    }
+
+    try {
+      console.log(`[CLIENT] Joining WebSocket room: ${roomId}`)
+      await this.socket?.emit('joinRoom', roomId)
+      this.joinedRooms.add(roomId)
+      console.log(`[CLIENT] Successfully joined room: ${roomId}`)
+    } catch (error) {
+      console.error(`[CLIENT ERROR] Failed to join WebSocket room: ${roomId}`, error)
+    }
+  }
+
+  async listenForLiveMessages ({
+    onMessage,
+    messageBox,
+    autoAcknowledge = true
+  }: {
+    onMessage: (message: PeerServMessage) => void
+    messageBox: string
+    autoAcknowledge?: boolean
+  }): Promise<void> {
+    console.log(`[CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
+
+    // Ensure WebSocket connection and room join
+    await this.joinRoom(messageBox)
+
+    // Ensure identity key is available before creating roomId
+    if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
+      throw new Error('[CLIENT ERROR] Identity key is missing. Cannot construct room ID.')
+    }
+
+    const roomId = `${this.myIdentityKey}-${messageBox}`
+
+    console.log(`[CLIENT] Listening for messages in room: ${roomId}`)
+
+    this.socket?.on(`sendMessage-${roomId}`, async (message: PeerServMessage) => {
+      console.log(`[CLIENT] Received message in room ${roomId}:`, message)
+  
+      onMessage(message)
+  
+      if (autoAcknowledge) {
+        console.log(`[CLIENT] Auto-acknowledging message ID: ${message.messageId}`)
+        try {
+          await this.acknowledgeMessage({ messageIds: [message.messageId] })
+          console.log(`[CLIENT] Message acknowledged successfully: ${message.messageId}`)
+        } catch (error) {
+          console.error(`[CLIENT ERROR] Failed to acknowledge message: ${message.messageId}`, error)
+        }
+      }
+    })
+  }
+
+  /**
+   * Leaves a WebSocket room.
+   */
+  async leaveRoom (messageBox: string): Promise<void> {
+    if (this.socket == null) {
+      console.warn('[CLIENT] Attempted to leave a room but WebSocket is not connected.')
+      return
+    }
+
+    if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
+      throw new Error('[CLIENT ERROR] Identity key is not defined')
+    }
+
+    const roomId = `${this.myIdentityKey}-${messageBox}`
+    console.log(`[CLIENT] Leaving WebSocket room: ${roomId}`)
+    this.socket.emit('leaveRoom', roomId)
+  }
+
+  /**
+   * Closes WebSocket connection.
+   */
+  async disconnectWebSocket (): Promise<void> {
+    if (this.socket != null) {
+      console.log('[CLIENT] Closing WebSocket connection...')
+      this.socket.disconnect()
+      this.socket = undefined
+    } else {
+      console.log('[CLIENT] No active WebSocket connection to close.')
     }
   }
 
