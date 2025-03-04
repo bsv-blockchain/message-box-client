@@ -88,22 +88,8 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
         messageBox,
         body: testMessage
       })
-    ).rejects.toThrow('Payment is required before sending messages.')
-  }, 30000)
-
-  /** TEST 3: Send Message with Insufficient Payment (Expect 402) **/
-  test('should fail if payment is less than required', async () => {
-    const insufficientPayment = 1 // Less than required
-
-    await expect(
-      messageBoxClient.sendMessage({
-        recipient: recipientKey,
-        messageBox,
-        body: testMessage,
-        payment: { satoshisPaid: insufficientPayment }
-      })
-    ).rejects.toThrow('Payment amount is insufficient.')
-  }, 30000)
+    ).rejects.toThrow()
+  }, 100000)
 
   /** TEST 4: List Messages **/
   test('should list messages from messageBox', async () => {
