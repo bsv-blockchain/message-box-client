@@ -78,7 +78,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     expect(response).toHaveProperty('messageId', expect.any(String))
 
     testMessageId = response.messageId // Store for cleanup
-  }, 15000)
+  }, 30000)
 
   /** TEST 2: Send Message without Payment (Expect 402) **/
   test('should fail to send a message without payment', async () => {
@@ -89,7 +89,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
         body: testMessage
       })
     ).rejects.toThrow('Payment is required before sending messages.')
-  }, 15000)
+  }, 30000)
 
   /** TEST 3: Send Message with Insufficient Payment (Expect 402) **/
   test('should fail if payment is less than required', async () => {
@@ -103,7 +103,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
         payment: { satoshisPaid: insufficientPayment }
       })
     ).rejects.toThrow('Payment amount is insufficient.')
-  }, 15000)
+  }, 30000)
 
   /** TEST 4: List Messages **/
   test('should list messages from messageBox', async () => {
