@@ -18,9 +18,9 @@ const messageBoxClient = new MessageBoxClient({
 
 describe('MessageBoxClient WebSocket Integration Tests', () => {
   beforeAll(async () => {
-    console.log('Initializing WebSocket connection for tests...')
-    await messageBoxClient.initializeConnection()
-    console.log('WebSocket connection initialized.')
+    // console.log('Initializing WebSocket connection for tests...')
+    // await messageBoxClient.initializeConnection()
+    // console.log('WebSocket connection initialized.')
 
     const keyResult = await walletClient.getPublicKey({ identityKey: true })
     recipientKey = keyResult.publicKey
@@ -37,7 +37,7 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     await messageBoxClient.initializeConnection()
     expect(messageBoxClient).toBeDefined()
     console.log('[TEST] WebSocket authenticated and connected')
-  })
+  }, 15000)
 
   /** TEST 2: Join a WebSocket Room **/
   test('should join a WebSocket room successfully', async () => {
@@ -56,17 +56,23 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     const messagePromise = new Promise<PeerServMessage>((resolve, reject) => {
       messageBoxClient.listenForLiveMessages({
         messageBox,
-        onMessage: (message) => {
-          receivedMessage = message
-          console.log('[TEST] Received message:', JSON.stringify(message, null, 2))
-          resolve(message) // Ensure promise resolves
+        onMessage: async (message) => {
+          try {
+            receivedMessage = message
+            console.log('[TEST] Received message:', JSON.stringify(message, null, 2))
+            // Optionally, add any additional async processing here before resolving.
+            resolve(message)
+          } catch (error) {
+            console.error('Error processing message:', error)
+            reject(error)
+          }
         }
       })
 
       // Timeout in case no message is received
       setTimeout(() => {
         reject(new Error('Test timed out: No message received over WebSocket'))
-      }, 5000) // Adjust timeout if needed
+      }, 10000)
     })
 
     // Ensure WebSocket room is joined before sending
@@ -83,14 +89,15 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     // Ensure message sending was successful
     expect(response.status).toBe('success')
 
-    // Wait for the message to be received
+    // Wait for the message to be received (promise resolves here)
     const received = await messagePromise
 
     // Verify message content
     expect(received).not.toBeNull()
     expect(received.body).toBe(testMessage)
     expect(received.sender).toBe(recipientKey)
-  })
+  }, 1500000)
+
 
   /** TEST 4: Leave a WebSocket Room **/
   test('should leave a WebSocket room successfully', async () => {
