@@ -1,4 +1,4 @@
-import MessageBoxClient from '../MessageBoxClient.js'
+import MessageBoxClient, { PeerServMessage } from '../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -59,7 +59,7 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
         onMessage: (message) => {
           receivedMessage = message
           console.log('[TEST] Received message:', JSON.stringify(message, null, 2))
-          resolve() // Ensure promise resolves
+          resolve(message) // Ensure promise resolves
         }
       })
 

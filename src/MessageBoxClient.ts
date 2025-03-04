@@ -4,7 +4,7 @@ import { AuthSocketClient } from '@bsv/authsocket'
 /**
  * Defines the structure of a PeerServ Message
  */
-interface PeerServMessage {
+export interface PeerServMessage {
   messageId: number
   body: string
   sender: string
@@ -280,20 +280,30 @@ class MessageBoxClient {
     const roomId = `${recipient}-${messageBox}`
     console.log(`[CLIENT] Sending WebSocket message to room: ${roomId}`)
 
-    return new Promise((resolve, reject) => {
-      this.socket?.emit(
-        'sendMessage',
-        { roomId, message: { messageId, body } },
-        (response?: SendMessageResponse) => {  // Provide callback to WebSocket emit
-          if (response?.status === 'success') {
-            console.log('[CLIENT] Message sent successfully via WebSocket:', response)
-            resolve(response)
-          } else {
-            console.warn('[CLIENT] WebSocket message failed, falling back to HTTP')
-            this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
-          }
+    return await new Promise((resolve, reject) => {
+      const ackEvent = `sendMessageAck-${roomId}`
+      let handled = false // Track whether the event has already been handled
+
+      const ackHandler = (response?: SendMessageResponse): void => {
+        if (handled) return // Ignore duplicate responses
+        handled = true // Mark event as handled
+
+        console.log('[CLIENT] Received WebSocket acknowledgment:', response)
+
+        if (response == null || response.status !== 'success') {
+          console.warn('[CLIENT] WebSocket message failed, falling back to HTTP')
+          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
+        } else {
+          console.log('[CLIENT] Message sent successfully via WebSocket:', response)
+          resolve(response)
         }
-      )
+      }
+
+      // Register the event listener
+      this.socket?.on(ackEvent, ackHandler)
+
+      // Send the message
+      this.socket?.emit('sendMessage', { roomId, message: { messageId, body } })
     })
   }
 
