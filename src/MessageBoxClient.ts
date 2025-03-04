@@ -80,6 +80,20 @@ class MessageBoxClient {
   }
 
   /**
+  * Getter for joinedRooms to use in tests
+  */
+  public getJoinedRooms (): Set<string> {
+    return this.joinedRooms
+  }
+
+  public getIdentityKey (): string {
+    if (this.myIdentityKey == null) {
+      throw new Error('[CLIENT ERROR] Identity key is not set')
+    }
+    return this.myIdentityKey
+  }
+
+  /**
   * Establish an initial WebSocket connection (optional)
   */
   async initializeConnection (): Promise<void> {
@@ -201,12 +215,10 @@ class MessageBoxClient {
 
   async listenForLiveMessages ({
     onMessage,
-    messageBox,
-    autoAcknowledge = true
+    messageBox
   }: {
     onMessage: (message: PeerServMessage) => void
     messageBox: string
-    autoAcknowledge?: boolean
   }): Promise<void> {
     console.log(`[CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
 
@@ -222,20 +234,66 @@ class MessageBoxClient {
 
     console.log(`[CLIENT] Listening for messages in room: ${roomId}`)
 
-    this.socket?.on(`sendMessage-${roomId}`, async (message: PeerServMessage) => {
+    this.socket?.on(`sendMessage-${roomId}`, (message: PeerServMessage) => {
       console.log(`[CLIENT] Received message in room ${roomId}:`, message)
-  
       onMessage(message)
-  
-      if (autoAcknowledge) {
-        console.log(`[CLIENT] Auto-acknowledging message ID: ${message.messageId}`)
-        try {
-          await this.acknowledgeMessage({ messageIds: [message.messageId] })
-          console.log(`[CLIENT] Message acknowledged successfully: ${message.messageId}`)
-        } catch (error) {
-          console.error(`[CLIENT ERROR] Failed to acknowledge message: ${message.messageId}`, error)
+    })
+  }
+
+  /**
+ * Sends a message over WebSocket if connected; falls back to HTTP otherwise.
+ */
+  async sendLiveMessage ({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
+    if (recipient == null || recipient.trim() === '') {
+      throw new Error('[CLIENT ERROR] Recipient identity key is required')
+    }
+    if (messageBox == null || messageBox.trim() === '') {
+      throw new Error('[CLIENT ERROR] MessageBox is required')
+    }
+    if (body == null || (typeof body === 'string' && body.trim() === '')) {
+      throw new Error('[CLIENT ERROR] Message body cannot be empty')
+    }
+
+    // Ensure WebSocket connection and room join before sending
+    await this.joinRoom(messageBox)
+
+    if (this.socket == null) {
+      console.warn('[CLIENT WARNING] WebSocket not connected, falling back to HTTP')
+      return await this.sendMessage({ recipient, messageBox, body })
+    }
+
+    // Generate message ID
+    let messageId: string
+    try {
+      const hmac = await this.walletClient.createHmac({
+        data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
+        protocolID: [0, 'PeerServ'],
+        keyID: '1',
+        counterparty: recipient
+      })
+      messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+    } catch (error) {
+      console.error('[CLIENT ERROR] Failed to generate HMAC:', error)
+      throw new Error('Failed to generate message identifier.')
+    }
+
+    const roomId = `${recipient}-${messageBox}`
+    console.log(`[CLIENT] Sending WebSocket message to room: ${roomId}`)
+
+    return new Promise((resolve, reject) => {
+      this.socket?.emit(
+        'sendMessage',
+        { roomId, message: { messageId, body } },
+        (response?: SendMessageResponse) => {  // Provide callback to WebSocket emit
+          if (response?.status === 'success') {
+            console.log('[CLIENT] Message sent successfully via WebSocket:', response)
+            resolve(response)
+          } else {
+            console.warn('[CLIENT] WebSocket message failed, falling back to HTTP')
+            this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
+          }
         }
-      }
+      )
     })
   }
 
@@ -255,6 +313,9 @@ class MessageBoxClient {
     const roomId = `${this.myIdentityKey}-${messageBox}`
     console.log(`[CLIENT] Leaving WebSocket room: ${roomId}`)
     this.socket.emit('leaveRoom', roomId)
+
+    // ✅ Ensure the room is removed from tracking
+    this.joinedRooms.delete(roomId)
   }
 
   /**

@@ -7,7 +7,6 @@ import { webcrypto } from 'crypto'
 const WS_URL = 'ws://localhost:8080'
 
 let recipientKey: string
-let testMessageId: string
 const messageBox = 'testBox'
 const testMessage = 'Hello, this is a WebSocket integration test.'
 
@@ -35,31 +34,70 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
 
   /** TEST 1: Authenticate WebSocket Connection **/
   test('should authenticate and connect via WebSocket', async () => {
+    await messageBoxClient.initializeConnection()
     expect(messageBoxClient).toBeDefined()
+    console.log('[TEST] WebSocket authenticated and connected')
   })
 
   /** TEST 2: Join a WebSocket Room **/
   test('should join a WebSocket room successfully', async () => {
     await messageBoxClient.joinRoom(messageBox)
     console.log(`Joined WebSocket room: ${messageBox}`)
+
+    // Verify that the room was actually joined
+    expect(messageBoxClient.getJoinedRooms().has(`${messageBoxClient.getIdentityKey()}-${messageBox}`)).toBe(true)
   })
 
-  /** TEST 3: Send a Message via WebSocket **/
-  test('should send a message via WebSocket', async () => {
-    const response = await messageBoxClient.sendMessage({
+  /** TEST 3: Send and Receive a Message via WebSocket **/
+  test('should send and receive a message via WebSocket', async () => {
+    let receivedMessage: PeerServMessage | null = null
+
+    // Create a promise that resolves when the message is received
+    const messagePromise = new Promise<PeerServMessage>((resolve, reject) => {
+      messageBoxClient.listenForLiveMessages({
+        messageBox,
+        onMessage: (message) => {
+          receivedMessage = message
+          console.log('[TEST] Received message:', JSON.stringify(message, null, 2))
+          resolve() // Ensure promise resolves
+        }
+      })
+
+      // Timeout in case no message is received
+      setTimeout(() => {
+        reject(new Error('Test timed out: No message received over WebSocket'))
+      }, 5000) // Adjust timeout if needed
+    })
+
+    // Ensure WebSocket room is joined before sending
+    await messageBoxClient.joinRoom(messageBox)
+
+    // ✅ Send message after listener is set up
+    console.log(`[TEST] Sending message to WebSocket room: ${messageBox}`)
+    const response = await messageBoxClient.sendLiveMessage({
       recipient: recipientKey,
       messageBox,
       body: testMessage
     })
 
+    // Ensure message sending was successful
     expect(response.status).toBe('success')
-    testMessageId = response.messageId
-    console.log(`Sent WebSocket message with ID: ${testMessageId}`)
+
+    // Wait for the message to be received
+    const received = await messagePromise
+
+    // Verify message content
+    expect(received).not.toBeNull()
+    expect(received.body).toBe(testMessage)
+    expect(received.sender).toBe(recipientKey)
   })
 
   /** TEST 4: Leave a WebSocket Room **/
   test('should leave a WebSocket room successfully', async () => {
     await messageBoxClient.leaveRoom(messageBox)
-    console.log(`Left WebSocket room: ${messageBox}`)
+    console.log(`[TEST] Left WebSocket room: ${messageBox}`)
+
+    // Ensure the room is removed from joinedRooms
+    expect(messageBoxClient.getJoinedRooms().has(`${messageBoxClient.getIdentityKey()}-${messageBox}`)).toBe(false)
   })
 })
