@@ -51,7 +51,8 @@
     "@bsv/auth-express-middleware": "^1.0.6",
     "@bsv/authsocket": "^1.0.0",
     "@bsv/payment-express-middleware": "^1.0.3",
-    "@bsv/sdk": "^1.3.28",
+    "@bsv/sdk": "^1.4.0",
+    "@bsv/wallet-toolbox": "^1.2.2",
     "axios": "^1.7.9"
   }
 }

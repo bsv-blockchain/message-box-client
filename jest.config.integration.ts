@@ -11,7 +11,7 @@ const config: JestConfigWithTsJest = {
     // Ensure Jest resolves TypeScript files without ".js" errors
     '^(.*)\\.js$': '$1'
   },
-  testMatch: ['**/src/integration/**/*.test.ts'], // Only run integration tests
+  testMatch: ['**/src/__tests/integration/**/*.test.ts'], // Only run integration tests
   verbose: true,
   globals: {
     'ts-jest': {

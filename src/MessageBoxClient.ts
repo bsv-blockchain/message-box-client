@@ -93,6 +93,11 @@ class MessageBoxClient {
     return this.myIdentityKey
   }
 
+  // Add a getter for testing purposes
+  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+    return this.socket
+  }
+
   /**
   * Establish an initial WebSocket connection (optional)
   */
@@ -407,6 +412,9 @@ class MessageBoxClient {
       }
 
       console.log('[CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
+
+      // DEBUG LOG: Check if AuthFetch is modifying the request before sending
+      console.log('[CLIENT] AuthFetch Instance:', this.authFetch)
 
       const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
         method: 'POST',
