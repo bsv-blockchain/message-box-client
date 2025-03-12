@@ -2,9 +2,9 @@ import { WalletClient, AuthFetch } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket'
 
 /**
- * Defines the structure of a PeerServ Message
+ * Defines the structure of a PeerMessage
  */
-export interface PeerServMessage {
+export interface PeerMessage {
   messageId: number
   body: string
   sender: string
@@ -46,20 +46,20 @@ interface ListMessagesParams {
 }
 
 /**
- * Extendable class for interacting with a PeerServ
+ * Extendable class for interacting with a MessageBoxServer
  */
 class MessageBoxClient {
-  private readonly peerServHost: string
+  private readonly host: string
   public readonly authFetch: AuthFetch
   private readonly walletClient: WalletClient
   private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
 
   constructor({
-    peerServHost = 'https://staging-peerserv.babbage.systems',
+    host = 'https://messagebox.babbage.systems',
     walletClient
-  }: { peerServHost?: string, walletClient: WalletClient }) {
-    this.peerServHost = peerServHost
+  }: { host?: string, walletClient: WalletClient }) {
+    this.host = host
     this.walletClient = walletClient
     this.authFetch = new AuthFetch(this.walletClient)
   }
@@ -109,7 +109,7 @@ class MessageBoxClient {
     console.log('[CLIENT] Setting up WebSocket connection...')
 
     if (this.socket == null) {
-      this.socket = AuthSocketClient(this.peerServHost, { wallet: this.walletClient })
+      this.socket = AuthSocketClient(this.host, { wallet: this.walletClient })
 
       let identitySent = false
       let authenticated = false
@@ -207,7 +207,7 @@ class MessageBoxClient {
     onMessage,
     messageBox
   }: {
-    onMessage: (message: PeerServMessage) => void
+    onMessage: (message: PeerMessage) => void
     messageBox: string
   }): Promise<void> {
     console.log(`[CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
@@ -224,7 +224,7 @@ class MessageBoxClient {
 
     console.log(`[CLIENT] Listening for messages in room: ${roomId}`)
 
-    this.socket?.on(`sendMessage-${roomId}`, (message: PeerServMessage) => {
+    this.socket?.on(`sendMessage-${roomId}`, (message: PeerMessage) => {
       console.log(`[CLIENT] Received message in room ${roomId}:`, message)
       onMessage(message)
     })
@@ -257,7 +257,7 @@ class MessageBoxClient {
     try {
       const hmac = await this.walletClient.createHmac({
         data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
-        protocolID: [0, 'PeerServ'],
+        protocolID: [0, 'messagebox'],
         keyID: '1',
         counterparty: recipient
       })
@@ -350,7 +350,7 @@ class MessageBoxClient {
     try {
       const hmac = await this.walletClient.createHmac({
         data: Array.from(new TextEncoder().encode(JSON.stringify(message.body))),
-        protocolID: [0, 'PeerServ'],
+        protocolID: [0, 'messagebox'],
         keyID: '1',
         counterparty: message.recipient
       })
@@ -365,7 +365,7 @@ class MessageBoxClient {
     }
 
     try {
-      console.log('[CLIENT] Sending HTTP request to:', `${this.peerServHost}/sendMessage`)
+      console.log('[CLIENT] Sending HTTP request to:', `${this.host}/sendMessage`)
       console.log('[CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
 
       // Set a manual timeout using Promise.race()
@@ -392,7 +392,7 @@ class MessageBoxClient {
 
       console.log('[CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
 
-      const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
+      const response = await this.authFetch.fetch(`${this.host}/sendMessage`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify(requestBody)
@@ -430,14 +430,14 @@ class MessageBoxClient {
   }
 
   /**
-   * Lists messages from PeerServ
+   * Lists messages from MessageBoxServer
    */
-  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerServMessage[]> {
+  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const response = await this.authFetch.fetch(`${this.peerServHost}/listMessages`, {
+    const response = await this.authFetch.fetch(`${this.host}/listMessages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageBox })
@@ -460,7 +460,7 @@ class MessageBoxClient {
       throw new Error('Message IDs array cannot be empty')
     }
 
-    const acknowledged = await this.authFetch.fetch(`${this.peerServHost}/acknowledgeMessage`, {
+    const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageIds })

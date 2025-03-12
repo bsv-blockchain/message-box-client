@@ -73,8 +73,8 @@ describe('MessageBoxClient', () => {
   it('Creates an instance of the MessageBoxClient class', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
-    // Ensure the peerServHost property is set correctly
-    expect(messageBoxClient).toHaveProperty('peerServHost', 'https://staging-peerserv.babbage.systems')
+    // Ensure the host property is set correctly
+    expect(messageBoxClient).toHaveProperty('host', 'https://messagebox.babbage.systems')
 
     // Ensure the socket is initialized as undefined before connecting
     expect(messageBoxClient.testSocket).toBeUndefined()
@@ -83,14 +83,14 @@ describe('MessageBoxClient', () => {
   it('Initializes WebSocket connection', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
     await messageBoxClient.initializeConnection()
-    expect(AuthSocketClient).toHaveBeenCalledWith('https://staging-peerserv.babbage.systems', expect.objectContaining({ wallet: mockWalletClient }))
+    expect(AuthSocketClient).toHaveBeenCalledWith('https://messagebox.babbage.systems', expect.objectContaining({ wallet: mockWalletClient }))
   })
 
   it('Throws an error when WebSocket connection is not initialized', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
     // 🔹 Mock `initializeConnection` so it doesn't set up `this.socket`
-    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => {})
+    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
 
     await expect(messageBoxClient.sendLiveMessage({
       recipient: 'mockIdentityKey',
@@ -231,7 +231,7 @@ describe('MessageBoxClient', () => {
 
     // Directly mock `AuthSocketClient` correctly
     const authSocketMock = { on: jest.fn(), emit: jest.fn() }
-    ;(AuthSocketClient as jest.Mock).mockReturnValue(authSocketMock)
+      ; (AuthSocketClient as jest.Mock).mockReturnValue(authSocketMock)
 
     await messageBoxClient.initializeConnection()
 
@@ -249,7 +249,7 @@ describe('MessageBoxClient', () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
     // Mock `initializeConnection` so it doesn't set up WebSocket
-    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => {})
+    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
 
     await expect(
       messageBoxClient.listenForLiveMessages({
@@ -320,8 +320,8 @@ describe('MessageBoxClient', () => {
       emit: jest.fn()
     }
 
-    // Ensure AuthSocketClient returns our mock socket
-    ;(AuthSocketClient as jest.Mock).mockReturnValue(mockSocket)
+      // Ensure AuthSocketClient returns our mock socket
+      ; (AuthSocketClient as jest.Mock).mockReturnValue(mockSocket)
 
     // Spy on console logs
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()

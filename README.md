@@ -1,171 +1,252 @@
-# tokenator
+# MessageBoxClient
 
-## Overview
+A lightweight, extensible client for **store-and-forward** message delivery on the [BSV](https://bitcoinsv.com/) blockchain ecosystem. The `MessageBoxClient` allows parties to send and receive authenticated peer-to-peer (P2P) messages through a simple "message box" architecture:
 
-Tokenator is a versatile and powerful tool that allows developers to easily create and transfer tokens peer-to-peer on the MetaNet.
+1. **Store-and-forward:** Messages are posted to a server (MessageBoxServer) under a named "message box."  
+2. **Ephemeral storage:** Once a recipient **acknowledges** receipt of the messages, they are **deleted** from the server.  
+3. **Mutual authentication:** Uses [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md)–based signing and verification to ensure only authorized peers can read or post messages.  
+4. **Simple integration:** Higher-level libraries (e.g., micropayment services, push-drop tokens, or specialized "tokenators") can be built on top of this client to facilitate more advanced workflows.
 
-The base-level class provides basic functionality such as sending, receiving, and deleting messages, while derived classes can be used to build specialized tokens for various applications. Examples of these derived classes include PaymentTokenator, EmailTokenator, PushDropTokenator, and ScribeTokenator.
+## Features
 
-With Tokenator, developers can take advantage of the power of the BSV blockchain, the simple messageBox architecture of PeerServ, privacy and mutual authentication with Authrite, and monetization with PacketPay to create cutting-edge decentralized applications.
+- **Secure by default:** Mutual authentication with the [AuthFetch](https://github.com/bitcoin-sv/authfetch) and [AuthSocketClient](https://github.com/bitcoin-sv/authsocket) libraries.  
+- **P2P data exchange:** Support for direct encrypted messaging at higher layers, micropayments, tokens, and more.  
+- **Flexible transport:** Send messages via **WebSockets** (live/real-time) or **HTTP**. 
+- **Extensible:** The store-and-forward pattern can underpin email-like features, invoice/ticketing systems, interactive payments, etc.
+
+---
 
 ## Installation
 
-    npm i @babbage/tokenator
+```bash
+npm install @bsv/p2p
+```
 
-## Example Usage
+---
+
+## Quick Start
+
+Below is a minimal example of using `MessageBoxClient` to:
+
+1. Initialize the client with your wallet (for identity keys and signing).  
+2. Send a message to a peer.  
+3. List messages in a box.  
+4. Acknowledge them (which deletes them from the server).
 
 ```js
-const Tokenator = require('@babbage/tokenator')
-const johnSmith = '022600d2ef37d123fdcac7d25d7a464ada7acd3fb65a0daf85412140ee20884311'
+const { WalletClient } = require('@bsv/sdk')
+const MessageBoxClient = require('@bsv/p2p')
 
-const init = async () => {
-    // Create a new instance of the PushDropTokenator class
-    // Configure the parameters according to the protocol being used
-    const tokenator = new Tokenator({
-        peerServHost: 'https://staging-peerserv.babbage.systems'
-    })
-    // Send a generic message using Babbage
-    await tokenator.sendMessage({
-        recipient: johnSmith,
-        messageBox: 'example_inbox',
-        body: 'This is an example message!'
-    })
+// Example identity key of the recipient (public key in hex).
+const johnSmithKey = '022600d2ef37d123fdcac7d25d7a464ada7acd3fb65a0daf85412140ee20884311'
 
-    // John can now list messages in his messageBox on PeerServ
-    const messages = await tokenator.listMessages({
-        messageBox: 'example_inbox'
-    })
+async function main() {
+  // 1) Create your WalletClient (this is how you obtain your identity key).
+  const myWallet = new WalletClient({
+    // ... wallet config here ...
+  })
 
-    console.log(messages[0].body) // --> 'This is an example message!'
+  // 2) Create a MessageBoxClient, pointing to a MessageBoxServer host.
+  const msgBoxClient = new MessageBoxClient({
+    host: 'https://messagebox.babbage.systems',
+    walletClient: myWallet
+  })
 
-    // Acknowledge that the messages have been received and can be deleted.
-    await tokenator.acknowledgeMessage({
-        messageIds: messages.map(x => x.messageId)
-    })
+  // (Optional) Initialize a WebSocket connection
+  // This is required if you want to listen for inbound, live messages:
+  await msgBoxClient.initializeConnection()
+
+  // 3) Send a message to John's "demo_inbox" box
+  await msgBoxClient.sendMessage({
+    recipient: johnSmithKey,
+    messageBox: 'demo_inbox',
+    body: 'Hello John! This is a test message.'
+  })
+
+  // (John logs in, queries messages in "demo_inbox", and acknowledges them...)
+  // For demonstration, let's assume we are also "John" and check his messages:
+
+  const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
+  console.log(messages[0].body) // --> "Hello John! This is a test message."
+
+  // Acknowledge (and remove) them from the server
+  await msgBoxClient.acknowledgeMessage({
+    messageIds: messages.map(msg => msg.messageId.toString())
+  })
 }
 
-init()
+main().catch(console.error)
 ```
+
+---
+
+## Listening for Live Messages
+
+If you want immediate push-style notifications (rather than polling via `listMessages`), you can join a WebSocket "room" and provide a callback. For example:
+
+```js
+await msgBoxClient.listenForLiveMessages({
+  messageBox: 'demo_inbox',
+  onMessage: (msg) => {
+    console.log('Received live message in "demo_inbox":', msg.body)
+  }
+})
+```
+
+Messages sent to `demo_inbox` will now trigger the callback in real time. (You must call `initializeConnection()` or do any function that establishes a WebSocket before listening.)
+
+---
 
 ## API
 
-<!-- Generated by documentation.js. Update this documentation by updating the source code. -->
+### Constructor
 
-#### Table of Contents
+```ts
+new MessageBoxClient({
+  host?: string,
+  walletClient: WalletClient
+})
+```
 
-*   [PeerServMessage](#peerservmessage)
-    *   [Properties](#properties)
-*   [Tokenator](#tokenator)
-    *   [Parameters](#parameters)
-    *   [initializeConnection](#initializeconnection)
-        *   [Parameters](#parameters-1)
-    *   [listenForLiveMessages](#listenforlivemessages)
-        *   [Parameters](#parameters-2)
-    *   [sendLiveMessage](#sendlivemessage)
-        *   [Parameters](#parameters-3)
-    *   [sendMessage](#sendmessage)
-        *   [Parameters](#parameters-4)
-    *   [listMessages](#listmessages)
-        *   [Parameters](#parameters-5)
-    *   [acknowledgeMessage](#acknowledgemessage)
-        *   [Parameters](#parameters-6)
+Creates a new instance of `MessageBoxClient`.
 
-### PeerServMessage
+- **host**: The base URL of the MessageBoxServer instance you’re connecting to.  
+- **walletClient**: A [WalletClient](https://github.com/bitcoin-sv) instance for signing and identity key management.
 
-Defines the structure of a PeerServ Message
+---
 
-Type: [Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)
+### `initializeConnection()`
 
-#### Properties
+```ts
+await msgBoxClient.initializeConnection()
+```
 
-*   `messageId` **[Number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** identifies a particular message
-*   `body` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** the body of the message (may be a stringified object)
-*   `sender` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** the identityKey of the sender
-*   `created_at` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** message creation timestamp as a string
-*   `updated_at` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** message update timestamp as a string
+- Establishes a WebSocket connection to the specified `host` (if not already connected).  
+- Authenticates using your identity key from the `walletClient`.
 
-### Tokenator
+Useful if you plan to receive inbound messages via sockets.
 
-Extendable class for interacting with a PeerServ
+---
 
-#### Parameters
+### `listenForLiveMessages({ messageBox, onMessage })`
 
-*   `obj` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)?** All parameters are given in an object (optional, default `{}`)
+```ts
+await msgBoxClient.listenForLiveMessages({
+  messageBox: 'demo_inbox',
+  onMessage: (msg) => {
+    console.log('New message in "demo_inbox":', msg)
+  }
+})
+```
 
-    *   `obj.peerServHost` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)?** The PeerServ host you want to connect to (optional, default `'https://staging-peerserv.babbage.systems'`)
-    *   `obj.clientPrivateKey` **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)?** A private key to use for mutual authentication with Authrite. (Defaults to Babbage signing strategy)
+- **messageBox**: The name of the message box to listen on (e.g. `"my_inbox"`).  
+- **onMessage**: A callback invoked when a new message arrives.
 
-#### initializeConnection
+Internally joins a WebSocket "room" for real-time notifications.
 
-Establish an initial socket connection to a room
-The room ID is based on your identityKey and the messageBox
+---
 
-##### Parameters
+### `sendLiveMessage({ recipient, messageBox, body })`
 
-*   `messageBox` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
+```ts
+const result = await msgBoxClient.sendLiveMessage({
+  recipient: johnSmithKey,
+  messageBox: 'demo_inbox',
+  body: 'Hello in real-time!'
+})
+```
 
-#### listenForLiveMessages
+- Attempts to send a message via WebSockets.  
+- If there’s no live socket or the socket fails, falls back to an HTTP request.  
+- **recipient**: Hex-encoded public key of the recipient.  
+- **messageBox**: The box name you’re delivering into (e.g. `"demo_inbox"`).  
+- **body**: The message payload (string or object).
 
-Start listening on your "public" message room
-Anyone can send you a message here
+Returns a `SendMessageResponse` with `{ status: 'success', messageId }` on success.
 
-##### Parameters
+---
 
-*   `obj` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** all params given in an object
+### `sendMessage({ recipient, messageBox, body })`
 
-    *   `obj.onMessage` **[function](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Statements/function)** onMessage handler function
-    *   `obj.messageBox` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** name of messageBox to listen on
+```ts
+const response = await msgBoxClient.sendMessage({
+  recipient: johnSmithKey,
+  messageBox: 'demo_inbox',
+  body: 'Hello via HTTP!'
+})
+```
 
-#### sendLiveMessage
+- Sends the message via HTTP only (no live socket).  
+- **recipient**: The recipient's identity key.  
+- **messageBox**: The message box name.  
+- **body**: The message payload (string or object).
 
-Send a message over sockets, with a backup of messageBox delivery
+Returns `{ status: 'success', messageId }` on success.
 
-##### Parameters
+---
 
-*   `obj` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** all params given in an object
+### `listMessages({ messageBox })`
 
-    *   `obj.message` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** The message contents to send
-    *   `obj.messageBox` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** The messageBox the message should be sent to depending on the protocol being used
-    *   `obj.recipient` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** The identityKey of the intended recipient
+```ts
+const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
+```
 
-#### sendMessage
+- Lists messages for the given box.  
+- Returns an array of [`PeerMessage`](#PeerMessage).
 
-Sends a message to a PeerServ recipient
+```ts
+interface PeerMessage {
+  messageId: number;
+  body: string;
+  sender: string;
+  created_at: string;
+  updated_at: string;
+  acknowledged?: boolean;
+}
+```
 
-##### Parameters
+---
 
-*   `message` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** The object containing the message params
+### `acknowledgeMessage({ messageIds })`
 
-    *   `message.recipient` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** The identityKey of the intended recipient
-    *   `message.messageBox` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** The messageBox the message should be sent to depending on the protocol being used
-    *   `message.body` **([string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String) | [object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object))** The body of the message
+```ts
+await msgBoxClient.acknowledgeMessage({
+  messageIds: ['1234', '5678']
+})
+```
 
-Returns **[String](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** status message
+- Acknowledges (and **deletes**) the specified messages from the server.  
+- **messageIds**: An array of message IDs (numbers as strings).  
 
-#### listMessages
+Returns a status string (usually `"success"`).
 
-Lists messages from PeerServ
+---
 
-##### Parameters
+## Advanced Usage
 
-*   `obj` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** An object containing the messageBox
+**Joining / Leaving Specific Rooms:**  
+   - Use `joinRoom(messageBox)` if you want to explicitly control room membership (helpful when you want to handle multiple boxes in a single app).
+   - Use `leaveRoom(messageBox)` to leave a specific room.
 
-    *   `obj.messageBox` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** The name of the messageBox to list messages from
+**Customizing Auth:**  
+   - `MessageBoxClient` uses `AuthFetch` and `AuthSocketClient` under the hood. You can swap these or tweak behaviors if hosting your own MessageBoxServer.
 
-Returns **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)<[PeerServMessage](#peerservmessage)>** of matching messages returned from PeerServ
+---
 
-#### acknowledgeMessage
+## Contributing
 
-Acknowledges one or more messages as having been recieved ensuring deletion of the message(s)
+1. Clone this repository.  
+2. Install dependencies with `npm install`.  
+3. Make your changes, write tests, and open a PR.  
 
-##### Parameters
+We welcome bug reports, feature requests, and community contributions!
 
-*   `obj` **[Object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** An object containing the messageIds
-
-    *   `obj.messageIds` **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** An array of Numbers indicating which message(s) to acknowledge
-
-Returns **[Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array)** of messages formatted according to the particular protocol in use
+---
 
 ## License
 
-The license for the code in this repository is the Open BSV License.
+The code in this repository is licensed under the [Open BSV License](https://www.bsvlicense.org/). Please see [LICENSE](./LICENSE) for more details.
+
+---
+
+**Happy messaging!** Build private, interactive, and decentralized applications using the BSV blockchain and `MessageBoxClient` for your P2P communication layer.

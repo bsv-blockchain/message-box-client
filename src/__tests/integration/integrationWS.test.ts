@@ -1,4 +1,4 @@
-import MessageBoxClient, { PeerServMessage } from '../../MessageBoxClient.js'
+import MessageBoxClient, { PeerMessage } from '../../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -12,7 +12,7 @@ const testMessage = 'Hello, this is a WebSocket integration test.'
 
 const walletClient = new WalletClient('json-api', 'localhost')
 const messageBoxClient = new MessageBoxClient({
-  peerServHost: WS_URL,
+  host: WS_URL,
   walletClient
 })
 
@@ -53,15 +53,15 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     'should send and receive a message via WebSocket',
     async () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      let receivedMessage: PeerServMessage | null = null
+      let receivedMessage: PeerMessage | null = null
 
       // Create a promise to wait for the received message
-      const messagePromise: Promise<PeerServMessage> = new Promise(
+      const messagePromise: Promise<PeerMessage> = new Promise(
         (resolve, reject) => {
           messageBoxClient
             .listenForLiveMessages({
               messageBox,
-              onMessage: (message: PeerServMessage) => {
+              onMessage: (message: PeerMessage) => {
                 try {
                   receivedMessage = message
                   console.log(
@@ -103,7 +103,7 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
       expect(response).toHaveProperty('status', 'success')
 
       // Wait for the received message
-      const received: PeerServMessage = await messagePromise
+      const received: PeerMessage = await messagePromise
 
       // Validate received message
       expect(received).not.toBeNull()
