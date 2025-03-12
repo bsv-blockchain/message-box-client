@@ -16,7 +16,7 @@ export interface PeerMessage {
 /**
  * Defines the structure of a message being sent
  */
-interface SendMessageParams {
+export interface SendMessageParams {
   recipient: string
   messageBox: string
   body: string | object
@@ -26,7 +26,7 @@ interface SendMessageParams {
 /**
  * Defines the structure of the response from sendMessage
  */
-interface SendMessageResponse {
+export interface SendMessageResponse {
   status: string
   messageId: string
 }
@@ -34,14 +34,14 @@ interface SendMessageResponse {
 /**
  * Defines the structure of a request to acknowledge messages
  */
-interface AcknowledgeMessageParams {
+export interface AcknowledgeMessageParams {
   messageIds: string[]
 }
 
 /**
  * Defines the structure of a request to list messages
  */
-interface ListMessagesParams {
+export interface ListMessagesParams {
   messageBox: string
 }
 
@@ -475,5 +475,3 @@ export class MessageBoxClient {
     return parsedAcknowledged.status
   }
 }
-
-export default MessageBoxClient
