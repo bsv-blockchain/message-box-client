@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import MessageBoxClient from '../MessageBoxClient.js'
+import MessageBoxClient from '../../MessageBoxClient'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -13,7 +13,7 @@ const walletClient = new WalletClient('json-api', 'localhost')
 
 // Initialize MessageBoxClient for HTTP-Only Testing
 const messageBoxClient = new MessageBoxClient({
-  peerServHost: 'http://localhost:8080',
+  peerServHost: 'https://messagebox.babbage.systems',
   walletClient
 })
 

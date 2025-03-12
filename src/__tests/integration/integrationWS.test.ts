@@ -1,10 +1,10 @@
-import MessageBoxClient, { PeerServMessage } from '../MessageBoxClient.js'
+import MessageBoxClient, { PeerServMessage } from '../../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
 (global as any).self = { crypto: webcrypto }
 
-const WS_URL = 'ws://localhost:8080'
+const WS_URL = 'https://messagebox.babbage.systems'
 
 let recipientKey: string
 const messageBox = 'testBox'
@@ -49,55 +49,69 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
   })
 
   /** TEST 3: Send and Receive a Message via WebSocket **/
-  test('should send and receive a message via WebSocket', async () => {
-    let receivedMessage: PeerServMessage | null = null
+  test(
+    'should send and receive a message via WebSocket',
+    async () => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      let receivedMessage: PeerServMessage | null = null
 
-    // Create a promise that resolves when the message is received
-    const messagePromise = new Promise<PeerServMessage>((resolve, reject) => {
-      messageBoxClient.listenForLiveMessages({
-        messageBox,
-        onMessage: async (message) => {
-          try {
-            receivedMessage = message
-            console.log('[TEST] Received message:', JSON.stringify(message, null, 2))
-            // Optionally, add any additional async processing here before resolving.
-            resolve(message)
-          } catch (error) {
-            console.error('Error processing message:', error)
-            reject(error)
-          }
+      // Create a promise to wait for the received message
+      const messagePromise: Promise<PeerServMessage> = new Promise(
+        (resolve, reject) => {
+          messageBoxClient
+            .listenForLiveMessages({
+              messageBox,
+              onMessage: (message: PeerServMessage) => {
+                try {
+                  receivedMessage = message
+                  console.log(
+                    '[TEST] Received message:',
+                    JSON.stringify(message, null, 2)
+                  )
+                  resolve(message)
+                } catch (error) {
+                  console.error('[ERROR] Error processing message:', error)
+                  reject(error)
+                }
+              }
+            })
+            .catch(reject) // Handle potential listener setup errors
+
+          setTimeout(
+            () =>
+              reject(
+                new Error('Test timed out: No message received over WebSocket')
+              ),
+            10000
+          )
         }
+      )
+
+      // Ensure WebSocket room is joined before sending
+      await messageBoxClient.joinRoom(messageBox)
+
+      console.log(`[TEST] Sending message to WebSocket room: ${messageBox}`)
+
+      // Send the message via WebSocket
+      const response = await messageBoxClient.sendLiveMessage({
+        recipient: recipientKey,
+        messageBox,
+        body: testMessage
       })
 
-      // Timeout in case no message is received
-      setTimeout(() => {
-        reject(new Error('Test timed out: No message received over WebSocket'))
-      }, 10000)
-    })
+      // Ensure message sending was successful
+      expect(response).toHaveProperty('status', 'success')
 
-    // Ensure WebSocket room is joined before sending
-    await messageBoxClient.joinRoom(messageBox)
+      // Wait for the received message
+      const received: PeerServMessage = await messagePromise
 
-    // ✅ Send message after listener is set up
-    console.log(`[TEST] Sending message to WebSocket room: ${messageBox}`)
-    const response = await messageBoxClient.sendLiveMessage({
-      recipient: recipientKey,
-      messageBox,
-      body: testMessage
-    })
-
-    // Ensure message sending was successful
-    expect(response.status).toBe('success')
-
-    // Wait for the message to be received (promise resolves here)
-    const received = await messagePromise
-
-    // Verify message content
-    expect(received).not.toBeNull()
-    expect(received.body).toBe(testMessage)
-    expect(received.sender).toBe(recipientKey)
-  }, 1500000)
-
+      // Validate received message
+      expect(received).not.toBeNull()
+      expect(received.body).toBe(testMessage)
+      expect(received.sender).toBe(recipientKey)
+    },
+    15000
+  )
 
   /** TEST 4: Leave a WebSocket Room **/
   test('should leave a WebSocket room successfully', async () => {
