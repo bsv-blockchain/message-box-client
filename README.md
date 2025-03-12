@@ -42,9 +42,7 @@ const johnSmithKey = '022600d2ef37d123fdcac7d25d7a464ada7acd3fb65a0daf85412140ee
 
 async function main() {
   // 1) Create your WalletClient (this is how you obtain your identity key).
-  const myWallet = new WalletClient({
-    // ... wallet config here ...
-  })
+  const myWallet = new WalletClient()
 
   // 2) Create a MessageBoxClient, pointing to a MessageBoxServer host.
   const msgBoxClient = new MessageBoxClient({

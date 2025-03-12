@@ -1,12 +1,18 @@
 {
-  "name": "messageboxclient",
+  "name": "@bsv/p2p",
   "version": "1.0.0",
-  "main": "index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/cjs/mod.js",
   "type": "module",
+  "description": "A client for P2P messaging",
+  "module": "dist/esm/mod.js",
+  "types": "dist/types/mod.d.ts",
   "scripts": {
-    "start": "node dist/index.js",
-    "dev": "nodemon --exec ts-node --loader ts-node/esm src/index.ts",
-    "build": "tsc",
+    "build": "npm run build:ts && npm run build:umd",
+    "build:ts": "tsc -b && tsconfig-to-dual-package tsconfig.cjs.json",
+    "build:umd": "webpack --config webpack.config.js",
     "test": "jest --config=jest.config.ts",
     "test:integration": "jest --config=jest.config.integration.ts",
     "test:coverage": "jest --coverage --coverageReporters=text --coverageReporters=html",
@@ -15,11 +21,20 @@
     "clean": "rimraf dist node_modules && npm install",
     "prebuild": "rimraf dist"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "BSV",
+    "Blockchain",
+    "P2P",
+    "Bitcoin",
+    "SV",
+    "Messaging",
+    "MessageBox"
+  ],
+  "author": "BSV Blockchain Association",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
+    "@bsv/auth-express-middleware": "^1.0.13",
+    "@bsv/payment-express-middleware": "^1.0.3",
     "@eslint/js": "^9.20.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.2",
@@ -49,10 +64,7 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
-    "@bsv/auth-express-middleware": "^1.0.6",
     "@bsv/authsocket": "^1.0.0",
-    "@bsv/payment-express-middleware": "^1.0.3",
-    "@bsv/sdk": "^1.4.0",
-    "@bsv/wallet-toolbox": "^1.2.2"
+    "@bsv/sdk": "^1.4.0"
   }
 }

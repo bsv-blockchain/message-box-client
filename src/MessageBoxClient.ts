@@ -48,7 +48,7 @@ interface ListMessagesParams {
 /**
  * Extendable class for interacting with a MessageBoxServer
  */
-class MessageBoxClient {
+export class MessageBoxClient {
   private readonly host: string
   public readonly authFetch: AuthFetch
   private readonly walletClient: WalletClient
@@ -314,7 +314,7 @@ class MessageBoxClient {
     console.log(`[CLIENT] Leaving WebSocket room: ${roomId}`)
     this.socket.emit('leaveRoom', roomId)
 
-    // ✅ Ensure the room is removed from tracking
+    // Ensure the room is removed from tracking
     this.joinedRooms.delete(roomId)
   }
 
