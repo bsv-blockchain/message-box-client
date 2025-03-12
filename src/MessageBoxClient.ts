@@ -413,9 +413,6 @@ class MessageBoxClient {
 
       console.log('[CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
 
-      // DEBUG LOG: Check if AuthFetch is modifying the request before sending
-      console.log('[CLIENT] AuthFetch Instance:', this.authFetch)
-
       const response = await this.authFetch.fetch(`${this.peerServHost}/sendMessage`, {
         method: 'POST',
         headers: authHeaders,

@@ -1,4 +1,4 @@
-import MessageBoxClient, { PeerServMessage } from '../../MessageBoxClient'
+import MessageBoxClient, { PeerServMessage } from '../../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -48,7 +48,6 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     expect(messageBoxClient.getJoinedRooms().has(`${messageBoxClient.getIdentityKey()}-${messageBox}`)).toBe(true)
   })
 
-  /** TEST 3: Send and Receive a Message via WebSocket **/
   /** TEST 3: Send and Receive a Message via WebSocket **/
   test(
     'should send and receive a message via WebSocket',
