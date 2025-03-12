@@ -21,7 +21,6 @@ interface SendMessageParams {
   messageBox: string
   body: string | object
   messageId?: string
-  payment?: { satoshisPaid: number }
 }
 
 /**
@@ -56,7 +55,7 @@ class MessageBoxClient {
   private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
 
-  constructor ({
+  constructor({
     peerServHost = 'https://staging-peerserv.babbage.systems',
     walletClient
   }: { peerServHost?: string, walletClient: WalletClient }) {
@@ -66,27 +65,13 @@ class MessageBoxClient {
   }
 
   /**
-   * Calculates the required payment for sending a message.
-   * This function matches the pricing logic on the server.
-   */
-  calculateMessagePrice (message: string, priority: boolean = false): number {
-    const basePrice = 2 // Base fee in satoshis
-    const sizeFactor = Math.ceil(Buffer.byteLength(message, 'utf8') / 1024) * 3 // 50 satoshis per KB
-
-    const totalPrice = basePrice + sizeFactor
-    console.log(`[CLIENT] Calculated message price: ${totalPrice} satoshis`)
-
-    return totalPrice
-  }
-
-  /**
   * Getter for joinedRooms to use in tests
   */
-  public getJoinedRooms (): Set<string> {
+  public getJoinedRooms(): Set<string> {
     return this.joinedRooms
   }
 
-  public getIdentityKey (): string {
+  public getIdentityKey(): string {
     if (this.myIdentityKey == null) {
       throw new Error('[CLIENT ERROR] Identity key is not set')
     }
@@ -94,14 +79,14 @@ class MessageBoxClient {
   }
 
   // Add a getter for testing purposes
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
   /**
   * Establish an initial WebSocket connection (optional)
   */
-  async initializeConnection (): Promise<void> {
+  async initializeConnection(): Promise<void> {
     console.log('[CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -188,7 +173,7 @@ class MessageBoxClient {
   /**
    * Join a WebSocket room before sending messages
    */
-  async joinRoom (messageBox: string): Promise<void> {
+  async joinRoom(messageBox: string): Promise<void> {
     console.log(`[CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -218,7 +203,7 @@ class MessageBoxClient {
     }
   }
 
-  async listenForLiveMessages ({
+  async listenForLiveMessages({
     onMessage,
     messageBox
   }: {
@@ -248,7 +233,7 @@ class MessageBoxClient {
   /**
  * Sends a message over WebSocket if connected; falls back to HTTP otherwise.
  */
-  async sendLiveMessage ({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
+  async sendLiveMessage({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[CLIENT ERROR] Recipient identity key is required')
     }
@@ -315,7 +300,7 @@ class MessageBoxClient {
   /**
    * Leaves a WebSocket room.
    */
-  async leaveRoom (messageBox: string): Promise<void> {
+  async leaveRoom(messageBox: string): Promise<void> {
     if (this.socket == null) {
       console.warn('[CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -336,7 +321,7 @@ class MessageBoxClient {
   /**
    * Closes WebSocket connection.
    */
-  async disconnectWebSocket (): Promise<void> {
+  async disconnectWebSocket(): Promise<void> {
     if (this.socket != null) {
       console.log('[CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -349,7 +334,7 @@ class MessageBoxClient {
   /**
    * Sends a message via HTTP
    */
-  async sendMessage (message: SendMessageParams): Promise<SendMessageResponse> {
+  async sendMessage(message: SendMessageParams): Promise<SendMessageResponse> {
     if (message.recipient == null || message.recipient.trim() === '') {
       throw new Error('You must provide a message recipient!')
     }
@@ -359,10 +344,6 @@ class MessageBoxClient {
     if (message.body == null || (typeof message.body === 'string' && message.body.trim().length === 0)) {
       throw new Error('Every message must have a body!')
     }
-
-    // Calculate required payment
-    const requiredSatoshis = this.calculateMessagePrice(JSON.stringify(message.body), false)
-    console.log(`[CLIENT] Calculated message price: ${requiredSatoshis} satoshis`)
 
     // Generate HMAC
     let messageId: string
@@ -378,8 +359,6 @@ class MessageBoxClient {
       console.error('[CLIENT ERROR] Failed to generate HMAC:', error)
       throw new Error('Failed to generate message identifier.')
     }
-
-    console.log(`[CLIENT] Sending message with ID ${messageId} and payment: ${requiredSatoshis} satoshis`)
 
     const requestBody = {
       message: { ...message, messageId, body: JSON.stringify(message.body) }
@@ -453,7 +432,7 @@ class MessageBoxClient {
   /**
    * Lists messages from PeerServ
    */
-  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerServMessage[]> {
+  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerServMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
@@ -476,7 +455,7 @@ class MessageBoxClient {
   /**
    * Acknowledges one or more messages as having been received
    */
-  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }

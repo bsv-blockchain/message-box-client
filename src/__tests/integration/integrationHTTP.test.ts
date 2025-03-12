@@ -61,15 +61,10 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
 
   /** TEST 1: Send a Message with Correct Payment **/
   test('should send a message successfully with correct payment', async () => {
-    const requiredPayment = messageBoxClient.calculateMessagePrice(testMessage) // Ensure correct calculation
-
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage,
-      payment: {
-        satoshisPaid: requiredPayment // Include the required payment
-      }
+      body: testMessage
     })
 
     console.log('[DEBUG] SendMessage Response:', response)
@@ -141,13 +136,10 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
 
   /** TEST 10: Send Message with Excessive Payment (Should still succeed) **/
   test('should send a message even if payment is more than required', async () => {
-    const overpaidAmount = messageBoxClient.calculateMessagePrice(testMessage2) + 1000
-
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage2,
-      payment: { satoshisPaid: overpaidAmount }
+      body: testMessage2
     })
 
     console.log('[DEBUG] Overpayment SendMessage Response:', response)
