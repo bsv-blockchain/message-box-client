@@ -1,5 +1,5 @@
 import { WalletClient, AuthFetch } from '@bsv/sdk'
-import { AuthSocketClient } from '@bsv/authsocket'
+import { AuthSocketClient } from '@bsv/authsocket-client'
 
 /**
  * Defines the structure of a PeerMessage
