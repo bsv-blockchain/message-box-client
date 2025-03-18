@@ -1,13 +1,13 @@
 import { MessageBoxClient, PeerMessage } from './MessageBoxClient.js'
 import { WalletClient, P2PKH, Utils, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, CreateActionResult } from '@bsv/sdk'
 
-const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
+export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
 const STANDARD_PAYMENT_OUTPUT_INDEX = 0
 
 /**
  * Configuration options for initializing PeerPayClient.
  */
-interface PeerPayClientConfig {
+export interface PeerPayClientConfig {
   messageBoxHost?: string
   walletClient: WalletClient
 }
@@ -15,7 +15,7 @@ interface PeerPayClientConfig {
 /**
  * Represents the parameters required to initiate a payment.
  */
-interface PaymentParams {
+export interface PaymentParams {
   recipient: string
   amount: number
 }
@@ -23,7 +23,7 @@ interface PaymentParams {
 /**
  * Represents a structured payment token.
  */
-interface PaymentToken {
+export interface PaymentToken {
   customInstructions: {
     derivationPrefix: Base64String,
     derivationSuffix: Base64String,
@@ -48,7 +48,7 @@ export interface IncomingPayment {
  * @param {string} [config.messageBoxHost] - The MessageBox host to connect to.
  * @param {WalletClient} config.walletClient - The wallet client for handling transactions.
  */
-class PeerPayClient extends MessageBoxClient {
+export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletClient
   private _authFetchInstance?: AuthFetch
 
@@ -338,5 +338,3 @@ class PeerPayClient extends MessageBoxClient {
     }))
   }
 }
-
-export default PeerPayClient
