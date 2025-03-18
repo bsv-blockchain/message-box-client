@@ -36,6 +36,13 @@
     "Messaging",
     "MessageBox"
   ],
+  "exports": {
+    ".": {
+      "import": "./dist/esm/mod.js",
+      "require": "./dist/cjs/mod.js"
+    },
+    "./package.json": "./package.json"
+  },
   "author": "BSV Blockchain Association",
   "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
