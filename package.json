@@ -39,7 +39,8 @@
   "exports": {
     ".": {
       "import": "./dist/esm/mod.js",
-      "require": "./dist/cjs/mod.js"
+      "require": "./dist/cjs/mod.js",
+      "types": "./dist/types/mod.d.ts"
     },
     "./package.json": "./package.json"
   },
