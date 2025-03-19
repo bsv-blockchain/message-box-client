@@ -1,5 +1,6 @@
 import { WalletClient, AuthFetch } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
+import { Logger } from './Utils/logger.js'
 
 /**
  * Defines the structure of a PeerMessage
@@ -57,12 +58,19 @@ export class MessageBoxClient {
 
   constructor({
     host = 'https://messagebox.babbage.systems',
-    walletClient
-  }: { host?: string, walletClient: WalletClient }) {
-    this.host = host
-    this.walletClient = walletClient
-    this.authFetch = new AuthFetch(this.walletClient)
+    walletClient,
+    enableLogging = false
+  }: { host?: string, walletClient: WalletClient, enableLogging?: boolean }) {
+    this.host = host;
+    this.walletClient = walletClient;
+    this.authFetch = new AuthFetch(this.walletClient);
+  
+    // Enable or disable logging based on user preference
+    if (enableLogging === true) {
+      Logger.enable();
+    }
   }
+  
 
   /**
   * Getter for joinedRooms to use in tests
@@ -73,7 +81,7 @@ export class MessageBoxClient {
 
   public getIdentityKey(): string {
     if (this.myIdentityKey == null) {
-      throw new Error('[CLIENT ERROR] Identity key is not set')
+      throw new Error('[MB CLIENT ERROR] Identity key is not set')
     }
     return this.myIdentityKey
   }
@@ -87,26 +95,26 @@ export class MessageBoxClient {
   * Establish an initial WebSocket connection (optional)
   */
   async initializeConnection(): Promise<void> {
-    console.log('[CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
+    Logger.log('[MB CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      console.log('[CLIENT] Fetching identity key...')
+      Logger.log('[MB CLIENT] Fetching identity key...')
       try {
         const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
         this.myIdentityKey = keyResult.publicKey
-        console.log(`[CLIENT] Identity key fetched successfully: ${this.myIdentityKey}`)
+        Logger.log(`[MB CLIENT] Identity key fetched successfully: ${this.myIdentityKey}`)
       } catch (error) {
-        console.error('[CLIENT ERROR] Failed to fetch identity key:', error)
+        Logger.error('[MB CLIENT ERROR] Failed to fetch identity key:', error)
         throw new Error('Identity key retrieval failed')
       }
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      console.error('[CLIENT ERROR] Identity key is still missing after retrieval!')
+      Logger.error('[MB CLIENT ERROR] Identity key is still missing after retrieval!')
       throw new Error('Identity key is missing')
     }
 
-    console.log('[CLIENT] Setting up WebSocket connection...')
+    Logger.log('[MB CLIENT] Setting up WebSocket connection...')
 
     if (this.socket == null) {
       this.socket = AuthSocketClient(this.host, { wallet: this.walletClient })
@@ -115,12 +123,12 @@ export class MessageBoxClient {
       let authenticated = false
 
       this.socket.on('connect', () => {
-        console.log('[CLIENT] Connected to WebSocket.')
+        Logger.log('[MB CLIENT] Connected to WebSocket.')
 
         if (!identitySent) {
-          console.log('[CLIENT] Sending authentication data:', this.myIdentityKey)
+          Logger.log('[MB CLIENT] Sending authentication data:', this.myIdentityKey)
           if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-            console.error('[CLIENT ERROR] Cannot send authentication: Identity key is missing!')
+            Logger.error('[MB CLIENT ERROR] Cannot send authentication: Identity key is missing!')
           } else {
             this.socket?.emit('authenticated', { identityKey: this.myIdentityKey })
             identitySent = true
@@ -130,35 +138,35 @@ export class MessageBoxClient {
 
       // Listen for authentication success from the server
       this.socket.on('authenticationSuccess', (data) => {
-        console.log(`[CLIENT] WebSocket authentication successful: ${JSON.stringify(data)}`)
+        Logger.log(`[MB CLIENT] WebSocket authentication successful: ${JSON.stringify(data)}`)
         authenticated = true
       })
 
       // Handle authentication failures
       this.socket.on('authenticationFailed', (data) => {
-        console.error(`[CLIENT ERROR] WebSocket authentication failed: ${JSON.stringify(data)}`)
+        Logger.error(`[MB CLIENT ERROR] WebSocket authentication failed: ${JSON.stringify(data)}`)
         authenticated = false
       })
 
       this.socket.on('disconnect', () => {
-        console.log('[CLIENT] Disconnected from MessageBox server')
+        Logger.log('[MB CLIENT] Disconnected from MessageBox server')
         this.socket = undefined
         identitySent = false
         authenticated = false
       })
 
       this.socket.on('error', (error) => {
-        console.error('[CLIENT ERROR] WebSocket error:', error)
+        Logger.error('[MB CLIENT ERROR] WebSocket error:', error)
       })
 
       // Wait for authentication confirmation before proceeding
       await new Promise<void>((resolve, reject) => {
         setTimeout(() => {
           if (authenticated) {
-            console.log('[CLIENT] WebSocket fully authenticated and ready!')
+            Logger.log('[MB CLIENT] WebSocket fully authenticated and ready!')
             resolve()
           } else {
-            reject(new Error('[CLIENT ERROR] WebSocket authentication timed out!'))
+            reject(new Error('[MB CLIENT ERROR] WebSocket authentication timed out!'))
           }
         }, 5000) // Timeout after 5 seconds
       })
@@ -174,32 +182,32 @@ export class MessageBoxClient {
    * Join a WebSocket room before sending messages
    */
   async joinRoom(messageBox: string): Promise<void> {
-    console.log(`[CLIENT] Attempting to join WebSocket room: ${messageBox}`)
+    Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
     if (this.socket == null) {
-      console.log('[CLIENT] No WebSocket connection. Initializing...')
+      Logger.log('[MB CLIENT] No WebSocket connection. Initializing...')
       await this.initializeConnection()
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      throw new Error('[CLIENT ERROR] Identity key is not defined')
+      throw new Error('[MB CLIENT ERROR] Identity key is not defined')
     }
 
     const roomId = `${this.myIdentityKey ?? ''}-${messageBox}`
 
     if (this.joinedRooms.has(roomId)) {
-      console.log(`[CLIENT] Already joined WebSocket room: ${roomId}`)
+      Logger.log(`[MB CLIENT] Already joined WebSocket room: ${roomId}`)
       return
     }
 
     try {
-      console.log(`[CLIENT] Joining WebSocket room: ${roomId}`)
+      Logger.log(`[MB CLIENT] Joining WebSocket room: ${roomId}`)
       await this.socket?.emit('joinRoom', roomId)
       this.joinedRooms.add(roomId)
-      console.log(`[CLIENT] Successfully joined room: ${roomId}`)
+      Logger.log(`[MB CLIENT] Successfully joined room: ${roomId}`)
     } catch (error) {
-      console.error(`[CLIENT ERROR] Failed to join WebSocket room: ${roomId}`, error)
+      Logger.error(`[MB CLIENT ERROR] Failed to join WebSocket room: ${roomId}`, error)
     }
   }
 
@@ -210,22 +218,22 @@ export class MessageBoxClient {
     onMessage: (message: PeerMessage) => void
     messageBox: string
   }): Promise<void> {
-    console.log(`[CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
+    Logger.log(`[MB CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection and room join
     await this.joinRoom(messageBox)
 
     // Ensure identity key is available before creating roomId
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      throw new Error('[CLIENT ERROR] Identity key is missing. Cannot construct room ID.')
+      throw new Error('[MB CLIENT ERROR] Identity key is missing. Cannot construct room ID.')
     }
 
     const roomId = `${this.myIdentityKey}-${messageBox}`
 
-    console.log(`[CLIENT] Listening for messages in room: ${roomId}`)
+    Logger.log(`[MB CLIENT] Listening for messages in room: ${roomId}`)
 
     this.socket?.on(`sendMessage-${roomId}`, (message: PeerMessage) => {
-      console.log(`[CLIENT] Received message in room ${roomId}:`, message)
+      Logger.log(`[MB CLIENT] Received message in room ${roomId}:`, message)
       onMessage(message)
     })
   }
@@ -235,20 +243,20 @@ export class MessageBoxClient {
  */
   async sendLiveMessage({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
-      throw new Error('[CLIENT ERROR] Recipient identity key is required')
+      throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
     if (messageBox == null || messageBox.trim() === '') {
-      throw new Error('[CLIENT ERROR] MessageBox is required')
+      throw new Error('[MB CLIENT ERROR] MessageBox is required')
     }
     if (body == null || (typeof body === 'string' && body.trim() === '')) {
-      throw new Error('[CLIENT ERROR] Message body cannot be empty')
+      throw new Error('[MB CLIENT ERROR] Message body cannot be empty')
     }
 
     // Ensure WebSocket connection and room join before sending
     await this.joinRoom(messageBox)
 
     if (this.socket == null) {
-      console.warn('[CLIENT WARNING] WebSocket not connected, falling back to HTTP')
+      Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
       return await this.sendMessage({ recipient, messageBox, body })
     }
 
@@ -263,12 +271,12 @@ export class MessageBoxClient {
       })
       messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
     } catch (error) {
-      console.error('[CLIENT ERROR] Failed to generate HMAC:', error)
+      Logger.error('[MB CLIENT ERROR] Failed to generate HMAC:', error)
       throw new Error('Failed to generate message identifier.')
     }
 
     const roomId = `${recipient}-${messageBox}`
-    console.log(`[CLIENT] Sending WebSocket message to room: ${roomId}`)
+    Logger.log(`[MB CLIENT] Sending WebSocket message to room: ${roomId}`)
 
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
@@ -278,13 +286,13 @@ export class MessageBoxClient {
         if (handled) return // Ignore duplicate responses
         handled = true // Mark event as handled
 
-        console.log('[CLIENT] Received WebSocket acknowledgment:', response)
+        Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
 
         if (response == null || response.status !== 'success') {
-          console.warn('[CLIENT] WebSocket message failed, falling back to HTTP')
+          Logger.warn('[MB CLIENT] WebSocket message failed, falling back to HTTP')
           this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
         } else {
-          console.log('[CLIENT] Message sent successfully via WebSocket:', response)
+          Logger.log('[MB CLIENT] Message sent successfully via WebSocket:', response)
           resolve(response)
         }
       }
@@ -302,16 +310,16 @@ export class MessageBoxClient {
    */
   async leaveRoom(messageBox: string): Promise<void> {
     if (this.socket == null) {
-      console.warn('[CLIENT] Attempted to leave a room but WebSocket is not connected.')
+      Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      throw new Error('[CLIENT ERROR] Identity key is not defined')
+      throw new Error('[MB CLIENT ERROR] Identity key is not defined')
     }
 
     const roomId = `${this.myIdentityKey}-${messageBox}`
-    console.log(`[CLIENT] Leaving WebSocket room: ${roomId}`)
+    Logger.log(`[MB CLIENT] Leaving WebSocket room: ${roomId}`)
     this.socket.emit('leaveRoom', roomId)
 
     // Ensure the room is removed from tracking
@@ -323,11 +331,11 @@ export class MessageBoxClient {
    */
   async disconnectWebSocket(): Promise<void> {
     if (this.socket != null) {
-      console.log('[CLIENT] Closing WebSocket connection...')
+      Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
       this.socket = undefined
     } else {
-      console.log('[CLIENT] No active WebSocket connection to close.')
+      Logger.log('[MB CLIENT] No active WebSocket connection to close.')
     }
   }
 
@@ -356,7 +364,7 @@ export class MessageBoxClient {
       })
       messageId = message.messageId ?? Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
     } catch (error) {
-      console.error('[CLIENT ERROR] Failed to generate HMAC:', error)
+      Logger.error('[MB CLIENT ERROR] Failed to generate HMAC:', error)
       throw new Error('Failed to generate message identifier.')
     }
 
@@ -365,12 +373,12 @@ export class MessageBoxClient {
     }
 
     try {
-      console.log('[CLIENT] Sending HTTP request to:', `${this.host}/sendMessage`)
-      console.log('[CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
+      Logger.log('[MB CLIENT] Sending HTTP request to:', `${this.host}/sendMessage`)
+      Logger.log('[MB CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
 
       // Set a manual timeout using Promise.race()
       // const timeoutPromise = new Promise<Response>((_resolve, reject) =>
-      //   setTimeout(() => reject(new Error('[CLIENT ERROR] Request timed out!')), 10000)
+      //   setTimeout(() => reject(new Error('[MB CLIENT ERROR] Request timed out!')), 10000)
       // )
 
       // Ensure the identity key is fetched before sending
@@ -378,9 +386,9 @@ export class MessageBoxClient {
         try {
           const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
           this.myIdentityKey = keyResult.publicKey
-          console.log(`[CLIENT] Fetched identity key before sending request: ${this.myIdentityKey}`)
+          Logger.log(`[MB CLIENT] Fetched identity key before sending request: ${this.myIdentityKey}`)
         } catch (error) {
-          console.error('[CLIENT ERROR] Failed to fetch identity key:', error)
+          Logger.error('[MB CLIENT ERROR] Failed to fetch identity key:', error)
           throw new Error('Identity key retrieval failed')
         }
       }
@@ -390,7 +398,7 @@ export class MessageBoxClient {
         'Content-Type': 'application/json'
       }
 
-      console.log('[CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
+      Logger.log('[MB CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
 
       const response = await this.authFetch.fetch(`${this.host}/sendMessage`, {
         method: 'POST',
@@ -399,31 +407,31 @@ export class MessageBoxClient {
       })
 
       // Debug: Check if bodyUsed before reading
-      console.log('[CLIENT] Raw Response:', response)
-      console.log('[CLIENT] Response Body Used?', response.bodyUsed)
+      Logger.log('[MB CLIENT] Raw Response:', response)
+      Logger.log('[MB CLIENT] Response Body Used?', response.bodyUsed)
 
       // Read body only if it's not already consumed
       if (response.bodyUsed) {
-        throw new Error('[CLIENT ERROR] Response body has already been used!')
+        throw new Error('[MB CLIENT ERROR] Response body has already been used!')
       }
 
       const parsedResponse = await response.json()
-      console.log('[CLIENT] Raw Response Body:', parsedResponse)
+      Logger.log('[MB CLIENT] Raw Response Body:', parsedResponse)
 
       if (!response.ok) {
-        console.error(`[CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`)
+        Logger.error(`[MB CLIENT ERROR] Failed to send message. HTTP ${response.status}: ${response.statusText}`)
         throw new Error(`Message sending failed: HTTP ${response.status} - ${response.statusText}`)
       }
 
       if (parsedResponse.status !== 'success') {
-        console.error(`[CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`)
+        Logger.error(`[MB CLIENT ERROR] Server returned an error: ${String(parsedResponse.description)}`)
         throw new Error(parsedResponse.description ?? 'Unknown error from server.')
       }
 
-      console.log('[CLIENT] Message successfully sent.')
+      Logger.log('[MB CLIENT] Message successfully sent.')
       return { ...parsedResponse, messageId }
     } catch (error) {
-      console.error('[CLIENT ERROR] Network or timeout error:', error)
+      Logger.error('[MB CLIENT ERROR] Network or timeout error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       throw new Error(`Failed to send message: ${errorMessage}`)
     }

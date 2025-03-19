@@ -1,5 +1,6 @@
 import { MessageBoxClient, PeerMessage } from './MessageBoxClient.js'
 import { WalletClient, P2PKH, Utils, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, CreateActionResult } from '@bsv/sdk'
+import { Logger } from './Utils/logger.js'
 
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
 const STANDARD_PAYMENT_OUTPUT_INDEX = 0
@@ -10,6 +11,7 @@ const STANDARD_PAYMENT_OUTPUT_INDEX = 0
 export interface PeerPayClientConfig {
   messageBoxHost?: string
   walletClient: WalletClient
+  enableLogging?: boolean  // 🔹 Added optional logging flag
 }
 
 /**
@@ -43,19 +45,16 @@ export interface IncomingPayment {
 
 /**
  * PeerPayClient enables peer-to-peer Bitcoin payments using MessageBox.
- *
- * @param {PeerPayClientConfig} config - Configuration options for PeerPayClient.
- * @param {string} [config.messageBoxHost] - The MessageBox host to connect to.
- * @param {WalletClient} config.walletClient - The wallet client for handling transactions.
  */
 export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletClient
   private _authFetchInstance?: AuthFetch
 
   constructor(config: PeerPayClientConfig) {
-    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient } = config
+    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false } = config
 
-    super({ host: messageBoxHost, walletClient })
+    // 🔹 Pass enableLogging to MessageBoxClient
+    super({ host: messageBoxHost, walletClient, enableLogging })
 
     this.peerPayWalletClient = walletClient
   }
@@ -88,8 +87,8 @@ export class PeerPayClient extends MessageBoxClient {
     const derivationPrefix = await createNonce(this.peerPayWalletClient)
     const derivationSuffix = await createNonce(this.peerPayWalletClient)
 
-    console.log(`Derivation Prefix: ${derivationPrefix}`)
-    console.log(`Derivation Suffix: ${derivationSuffix}`)
+    Logger.log(`[PP CLIENT] Derivation Prefix: ${derivationPrefix}`)
+    Logger.log(`[PP CLIENT] Derivation Suffix: ${derivationSuffix}`)
 
     // Get recipient's derived public key
     const { publicKey: derivedKeyResult } = await this.peerPayWalletClient.getPublicKey({
@@ -98,7 +97,7 @@ export class PeerPayClient extends MessageBoxClient {
       counterparty: payment.recipient
     })
 
-    console.log(`Derived Public Key: ${derivedKeyResult}`)
+    Logger.log(`[PP CLIENT] Derived Public Key: ${derivedKeyResult}`)
 
     if (derivedKeyResult == null || derivedKeyResult.trim() === '') {
       throw new Error('Failed to derive recipient’s public key')
@@ -107,7 +106,7 @@ export class PeerPayClient extends MessageBoxClient {
     // Create locking script using recipient's public key
     const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
 
-    console.log(`Locking Script: ${lockingScript}`)
+    Logger.log(`[PP CLIENT] Locking Script: ${lockingScript}`)
 
     // Create the payment action
     const paymentAction = await this.peerPayWalletClient.createAction({
@@ -131,7 +130,7 @@ export class PeerPayClient extends MessageBoxClient {
       throw new Error('Transaction creation failed!')
     }
 
-    console.log(`Payment Action:`, paymentAction)
+    Logger.log(`[PP CLIENT] Payment Action:`, paymentAction)
 
     return {
       customInstructions: {
@@ -237,7 +236,7 @@ export class PeerPayClient extends MessageBoxClient {
    */
   async acceptPayment(payment: IncomingPayment): Promise<any> {
     try {
-      console.log(`Processing payment: ${JSON.stringify(payment, null, 2)}`)
+      Logger.log(`[PP CLIENT] Processing payment: ${JSON.stringify(payment, null, 2)}`)
 
       const paymentResult = await this.peerPayWalletClient.internalizeAction({
         tx: payment.token.transaction,
@@ -253,13 +252,13 @@ export class PeerPayClient extends MessageBoxClient {
         description: 'PeerPay Payment'
       })
 
-      console.log(`Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
+      Logger.log(`[PP CLIENT] Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
 
       await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] })
 
       return { payment, paymentResult }
     } catch (error) {
-      console.error(`Error accepting payment: ${String(error)}`)
+      Logger.error(`[PP CLIENT] Error accepting payment: ${String(error)}`)
       return 'Unable to receive payment!'
     }
   }
@@ -275,24 +274,24 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<void>} Resolves when the payment is either acknowledged or refunded.
    */
   async rejectPayment(payment: IncomingPayment): Promise<void> {
-    console.log(`Rejecting payment: ${JSON.stringify(payment, null, 2)}`);
+    Logger.log(`[PP CLIENT] Rejecting payment: ${JSON.stringify(payment, null, 2)}`);
 
     if (payment.token.amount - 1000 < 1000) {
-      console.log('Payment amount too small after fee, just acknowledging.');
+      Logger.log(`[PP CLIENT] Payment amount too small after fee, just acknowledging.`);
 
       try {
-        console.log(`Attempting to acknowledge message ${payment.messageId}...`);
+        Logger.log(`[PP CLIENT] Attempting to acknowledge message ${payment.messageId}...`);
         if (!this.authFetch) {
-          console.warn('Warning: authFetch is undefined! Ensure PeerPayClient is initialized correctly.');
+          Logger.warn('[PP CLIENT] Warning: authFetch is undefined! Ensure PeerPayClient is initialized correctly.');
         }
-        console.log(`authFetch instance:`, this.authFetch);
+        Logger.log(`[PP CLIENT] authFetch instance:`, this.authFetch);
         const response = await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] });
-        console.log(`Acknowledgment response: ${response}`);
+        Logger.log(`[PP CLIENT] Acknowledgment response: ${response}`);
       } catch (error: any) {
         if (error.message.includes('401')) {
-          console.warn(`Authentication issue while acknowledging: ${error.message}`);
+          Logger.warn(`[PP CLIENT] Authentication issue while acknowledging: ${error.message}`);
         } else {
-          console.error(`Error acknowledging message: ${error.message}`);
+          Logger.error(`[PP CLIENT] Error acknowledging message: ${error.message}`);
           throw error; // Only throw if it's another type of error
         }
       }
@@ -300,23 +299,23 @@ export class PeerPayClient extends MessageBoxClient {
       return;
     }
 
-    console.log('Accepting payment before refunding...');
+    Logger.log('[PP CLIENT] Accepting payment before refunding...');
     await this.acceptPayment(payment);
 
-    console.log(`Sending refund of ${payment.token.amount - 1000} to ${payment.sender}...`);
+    Logger.log(`[PP CLIENT] Sending refund of ${payment.token.amount - 1000} to ${payment.sender}...`);
     await this.sendPayment({
       recipient: payment.sender,
       amount: payment.token.amount - 1000 // Deduct fee
     });
 
-    console.log('Payment successfully rejected and refunded.');
+    Logger.log('[PP CLIENT] Payment successfully rejected and refunded.');
 
     try {
-      console.log(`Acknowledging message ${payment.messageId} after refunding...`);
+      Logger.log(`[PP CLIENT] Acknowledging message ${payment.messageId} after refunding...`);
       await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] });
-      console.log(`Acknowledgment after refund successful.`);
+      Logger.log(`[PP CLIENT] Acknowledgment after refund successful.`);
     } catch (error: any) {
-      console.error(`Error acknowledging message after refund: ${error.message}`);
+      Logger.error(`[PP CLIENT] Error acknowledging message after refund: ${error.message}`);
     }
   }
 
