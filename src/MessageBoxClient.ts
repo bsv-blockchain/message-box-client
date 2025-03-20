@@ -255,7 +255,7 @@ export class MessageBoxClient {
     // Ensure WebSocket connection and room join before sending
     await this.joinRoom(messageBox)
 
-    if (this.socket == null) {
+    if (this.socket == null || !this.socket.connected) {
       Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
       return await this.sendMessage({ recipient, messageBox, body })
     }
@@ -285,6 +285,7 @@ export class MessageBoxClient {
       const ackHandler = (response?: SendMessageResponse): void => {
         if (handled) return // Ignore duplicate responses
         handled = true // Mark event as handled
+        this.socket?.off(ackEvent, ackHandler); // Cleanup listener
 
         Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
 
@@ -302,6 +303,14 @@ export class MessageBoxClient {
 
       // Send the message
       this.socket?.emit('sendMessage', { roomId, message: { messageId, body } })
+
+      // Timeout: If WebSocket takes too long, fall back to HTTP
+      setTimeout(() => {
+        if (!handled) {
+          Logger.warn('[CLIENT] WebSocket acknowledgment timed out, falling back to HTTP');
+          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject);
+        }
+      }, 10000); // 10-second timeout
     })
   }
 
