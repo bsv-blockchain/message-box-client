@@ -64,13 +64,13 @@ export class MessageBoxClient {
     this.host = host;
     this.walletClient = walletClient;
     this.authFetch = new AuthFetch(this.walletClient);
-  
+
     // Enable or disable logging based on user preference
     if (enableLogging === true) {
       Logger.enable();
     }
   }
-  
+
 
   /**
   * Getter for joinedRooms to use in tests
@@ -285,7 +285,6 @@ export class MessageBoxClient {
       const ackHandler = (response?: SendMessageResponse): void => {
         if (handled) return // Ignore duplicate responses
         handled = true // Mark event as handled
-        this.socket?.off(ackEvent, ackHandler); // Cleanup listener
 
         Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
 
