@@ -212,12 +212,13 @@ export class PeerPayClient extends MessageBoxClient {
 
       // Convert PeerMessage → IncomingPayment before calling onPayment
       onMessage: (message: PeerMessage) => {
+        Logger.log('[MB CLIENT] Received Live Payment:', message);
         const incomingPayment: IncomingPayment = {
           messageId: message.messageId,
           sender: message.sender,
           token: JSON.parse(message.body)
         }
-
+        Logger.log('[PP CLIENT] Converted PeerMessage to IncomingPayment:', incomingPayment)
         onPayment(incomingPayment)
       }
     })
@@ -253,6 +254,7 @@ export class PeerPayClient extends MessageBoxClient {
       })
 
       Logger.log(`[PP CLIENT] Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
+      Logger.log(`[PP CLIENT] Acknowledging payment with messageId: ${payment.messageId}`)
 
       await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] })
 

@@ -280,15 +280,19 @@ export class MessageBoxClient {
 
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
-      let handled = false // Track whether the event has already been handled
-
+      let handled = false
+    
       const ackHandler = (response?: SendMessageResponse): void => {
-        if (handled) return // Ignore duplicate responses
-        handled = true // Mark event as handled
-        this.socket?.off(ackEvent, ackHandler); // Cleanup listener
-
+        if (handled) return
+        handled = true
+    
+        const socketAny = this.socket as any
+        if (typeof socketAny?.off === 'function') {
+          socketAny.off(ackEvent, ackHandler)
+        }
+    
         Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
-
+    
         if (response == null || response.status !== 'success') {
           Logger.warn('[MB CLIENT] WebSocket message failed, falling back to HTTP')
           this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
@@ -297,20 +301,32 @@ export class MessageBoxClient {
           resolve(response)
         }
       }
-
-      // Register the event listener
+    
+      // Register listener before emitting
       this.socket?.on(ackEvent, ackHandler)
-
+    
       // Send the message
-      this.socket?.emit('sendMessage', { roomId, message: { messageId, body } })
-
-      // Timeout: If WebSocket takes too long, fall back to HTTP
+      this.socket?.emit('sendMessage', {
+        roomId,
+        message: {
+          messageId,
+          recipient,
+          body: typeof body === 'string' ? body : JSON.stringify(body)
+        }
+      })
+    
+      // Timeout fallback after 10 seconds
       setTimeout(() => {
         if (!handled) {
-          Logger.warn('[CLIENT] WebSocket acknowledgment timed out, falling back to HTTP');
-          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject);
+          handled = true
+          const socketAny = this.socket as any
+          if (typeof socketAny?.off === 'function') {
+            socketAny.off(ackEvent, ackHandler) // 🧹 Clean up listener
+          }
+          Logger.warn('[CLIENT] WebSocket acknowledgment timed out, falling back to HTTP')
+          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
         }
-      }, 10000); // 10-second timeout
+      }, 10000)
     })
   }
 
@@ -384,11 +400,6 @@ export class MessageBoxClient {
     try {
       Logger.log('[MB CLIENT] Sending HTTP request to:', `${this.host}/sendMessage`)
       Logger.log('[MB CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
-
-      // Set a manual timeout using Promise.race()
-      // const timeoutPromise = new Promise<Response>((_resolve, reject) =>
-      //   setTimeout(() => reject(new Error('[MB CLIENT ERROR] Request timed out!')), 10000)
-      // )
 
       // Ensure the identity key is fetched before sending
       if (this.myIdentityKey == null || this.myIdentityKey === '') {
@@ -476,6 +487,8 @@ export class MessageBoxClient {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
+
+    Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
 
     const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
       method: 'POST',
