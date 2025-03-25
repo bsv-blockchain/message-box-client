@@ -1,7 +1,6 @@
 /* eslint-env jest */
 import { MessageBoxClient } from '../MessageBoxClient'
 import { WalletClient, AuthFetch } from '@bsv/sdk'
-import { AuthSocketClient } from '@bsv/authsocket-client'
 
 // --- ✅ MOCK: WalletClient methods ---
 jest.spyOn(WalletClient.prototype, 'createHmac').mockResolvedValue({
@@ -23,23 +22,23 @@ const defaultMockResponse: Partial<Response> = {
 jest.spyOn(AuthFetch.prototype, 'fetch')
   .mockResolvedValue(defaultMockResponse as Response)
 
-  const socketOnMap: Record<string, (...args: any[]) => void> = {}
+const socketOnMap: Record<string, (...args: any[]) => void> = {}
 
-  const mockSocket = {
-    on: jest.fn((event, callback) => {
-      socketOnMap[event] = callback
-    }),
-    emit: jest.fn(),
-    disconnect: jest.fn(),
-    connected: true,
-    off: jest.fn()
-  }
-  
-  jest.mock('@bsv/authsocket-client', () => ({
-    AuthSocketClient: jest.fn(() => mockSocket)
-  }))
-  
-  
+const mockSocket = {
+  on: jest.fn((event, callback) => {
+    socketOnMap[event] = callback
+  }),
+  emit: jest.fn(),
+  disconnect: jest.fn(),
+  connected: true,
+  off: jest.fn()
+}
+
+jest.mock('@bsv/authsocket-client', () => ({
+  AuthSocketClient: jest.fn(() => mockSocket)
+}))
+
+
 
 // Optional: Global WebSocket override (not strictly needed with AuthSocketClient)
 class MockWebSocket {
@@ -92,7 +91,7 @@ describe('MessageBoxClient', () => {
       walletClient: mockWalletClient,
       enableLogging: true
     })
-    
+
     expect(messageBoxClient).toHaveProperty('host', 'https://messagebox.babbage.systems')
 
     // Ensure the socket is initialized as undefined before connecting
@@ -101,41 +100,41 @@ describe('MessageBoxClient', () => {
 
   it('Initializes WebSocket connection', async () => {
     await new Promise(resolve => setTimeout(resolve, 100))
-  
+
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
       enableLogging: true
     })
-  
+
     const connection = messageBoxClient.initializeConnection()
-  
+
     // Simulate server response
     setTimeout(() => {
       socketOnMap['authenticationSuccess']?.({ status: 'ok' })
     }, 100)
-  
+
     await expect(connection).resolves.toBeUndefined()
   }, 10000)
 
   it('Falls back to HTTP when WebSocket is not initialized', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-  
+
     // Bypass the real connection logic
-    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => {})
-  
-    // Manually set identity key
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
-  
-    // Simulate WebSocket not initialized
-    ;(messageBoxClient as any).socket = null
-  
+    jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
+
+      // Manually set identity key
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+
+      // Simulate WebSocket not initialized
+      ; (messageBoxClient as any).socket = null
+
     // Expect it to fall back to HTTP and succeed
     const result = await messageBoxClient.sendLiveMessage({
       recipient: 'mockIdentityKey',
       messageBox: 'test_inbox',
       body: 'Test message'
     })
-  
+
     expect(result).toEqual({
       status: 'success',
       message: 'Mocked response',
@@ -145,22 +144,22 @@ describe('MessageBoxClient', () => {
 
   it('Listens for live messages', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-  
+
     const connection = messageBoxClient.initializeConnection()
-  
+
     setTimeout(() => {
       socketOnMap['authenticationSuccess']?.({ status: 'ok' })
     }, 100)
-  
+
     await connection
-  
+
     const mockOnMessage = jest.fn()
-  
+
     await messageBoxClient.listenForLiveMessages({
       messageBox: 'test_inbox',
       onMessage: mockOnMessage
     })
-  
+
     expect(messageBoxClient.testSocket?.emit).toHaveBeenCalledWith(
       'joinRoom',
       'mockIdentityKey-test_inbox'
@@ -169,25 +168,25 @@ describe('MessageBoxClient', () => {
 
   it('Sends a live message', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-  
+
     const connection = messageBoxClient.initializeConnection()
-  
+
     // Simulate WebSocket auth success
     setTimeout(() => {
       socketOnMap['authenticationSuccess']?.({ status: 'ok' })
     }, 100)
-  
+
     await connection
-  
+
     const emitSpy = jest.spyOn(messageBoxClient.testSocket as any, 'emit')
-  
+
     // Kick off sending a message (this sets up the ack listener)
     const sendPromise = messageBoxClient.sendLiveMessage({
       recipient: 'mockIdentityKey',
       messageBox: 'test_inbox',
       body: 'Test message'
     })
-  
+
     // Simulate WebSocket acknowledgment
     setTimeout(() => {
       socketOnMap['sendMessageAck-mockIdentityKey-test_inbox']?.({
@@ -195,9 +194,9 @@ describe('MessageBoxClient', () => {
         messageId: 'mocked123'
       })
     }, 100)
-  
+
     const result = await sendPromise
-  
+
     // Check that WebSocket emit happened correctly
     expect(emitSpy).toHaveBeenCalledWith(
       'sendMessage',
@@ -206,7 +205,7 @@ describe('MessageBoxClient', () => {
         message: expect.objectContaining({ body: 'Test message' })
       })
     )
-  
+
     // Check the resolved result
     expect(result).toEqual({
       status: 'success',
@@ -225,7 +224,7 @@ describe('MessageBoxClient', () => {
       ok: true,
       status: 200
     } as unknown as Response)
-    
+
 
     const result = await messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
@@ -268,13 +267,13 @@ describe('MessageBoxClient', () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
-    .mockResolvedValue({
-      status: 500,
-      statusText: 'Internal Server Error',
-      ok: false,
-      json: async () => ({ status: 'error', description: 'Internal Server Error' }),
-      headers: new Headers()
-    } as unknown as Response)
+      .mockResolvedValue({
+        status: 500,
+        statusText: 'Internal Server Error',
+        ok: false,
+        json: async () => ({ status: 'error', description: 'Internal Server Error' }),
+        headers: new Headers()
+      } as unknown as Response)
 
     await expect(messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
@@ -320,13 +319,13 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when WebSocket is not initialized before listening for messages', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-  
-    // Stub out the identity key to pass that check
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
-  
+
+      // Stub out the identity key to pass that check
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+
     // Stub out joinRoom to throw like the real one might
     jest.spyOn(messageBoxClient, 'joinRoom').mockRejectedValue(new Error('WebSocket connection not initialized'))
-  
+
     await expect(
       messageBoxClient.listenForLiveMessages({
         onMessage: jest.fn(),
@@ -383,19 +382,19 @@ describe('MessageBoxClient', () => {
 
   it('Handles WebSocket connection and disconnection events', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-  
+
     // Simulate identity key
     jest.spyOn(mockWalletClient, 'getPublicKey').mockResolvedValue({ publicKey: 'mockIdentityKey' })
-  
+
     // Simulate connection + disconnection + auth success
     setTimeout(() => {
       socketOnMap['connect']?.()
       socketOnMap['disconnect']?.()
       socketOnMap['authenticationSuccess']?.({ status: 'ok' })
     }, 100)
-  
+
     await messageBoxClient.initializeConnection()
-  
+
     // Verify event listeners were registered
     expect(mockSocket.on).toHaveBeenCalledWith('connect', expect.any(Function))
     expect(mockSocket.on).toHaveBeenCalledWith('disconnect', expect.any(Function))
@@ -422,7 +421,7 @@ describe('MessageBoxClient', () => {
       recipient: '  ',
       messageBox: 'test_inbox',
       body: 'Test message'
-    })).rejects.toThrow('[MB CLIENT ERROR] Recipient identity key is required')    
+    })).rejects.toThrow('[MB CLIENT ERROR] Recipient identity key is required')
   })
 
   it('throws an error when recipient is missing in sendMessage', async () => {

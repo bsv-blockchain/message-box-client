@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { PeerPayClient } from '../PeerPayClient'
-import { WalletClient, P2PKH, CreateHmacResult, PrivateKey, AtomicBEEF } from '@bsv/sdk'
+import { WalletClient, CreateHmacResult, PrivateKey } from '@bsv/sdk'
 import { jest } from '@jest/globals'
 
 const toArray = (msg: any, enc?: 'hex' | 'utf8' | 'base64'): any[] => {
@@ -44,18 +44,18 @@ describe('PeerPayClient Unit Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-  
+
     mockWalletClient = new WalletClient() as jest.Mocked<WalletClient>
-  
+
     // Ensure a valid compressed public key (33 bytes, hex format)
     mockWalletClient.getPublicKey.mockResolvedValue({
       publicKey: PrivateKey.fromRandom().toPublicKey().toString()
     })
-  
-    mockWalletClient.createAction.mockResolvedValue({ 
-      tx: toArray('mockedTransaction', 'utf8') 
+
+    mockWalletClient.createAction.mockResolvedValue({
+      tx: toArray('mockedTransaction', 'utf8')
     })
-  
+
     peerPayClient = new PeerPayClient({
       messageBoxHost: 'https://messagebox.babbage.systems',
       walletClient: mockWalletClient
@@ -68,10 +68,10 @@ describe('PeerPayClient Unit Tests', () => {
         publicKey: PrivateKey.fromRandom().toPublicKey().toString()
       })
       mockWalletClient.createAction.mockResolvedValue({ tx: toArray('mockedTransaction', 'utf8') })
-    
+
       const payment = { recipient: PrivateKey.fromRandom().toPublicKey().toString(), amount: 5 }
       const token = await peerPayClient.createPaymentToken(payment)
-    
+
       expect(token).toHaveProperty('amount', 5)
       expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object))
       expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object))
@@ -86,75 +86,75 @@ describe('PeerPayClient Unit Tests', () => {
 
     it('should throw an error if amount is <= 0', async () => {
       (mockWalletClient.getPublicKey as jest.MockedFunction<typeof mockWalletClient.getPublicKey>)
-        .mockResolvedValue({ 
+        .mockResolvedValue({
           publicKey: PrivateKey.fromRandom().toPublicKey().toString()
         })
-    
-      await expect(peerPayClient.createPaymentToken({ 
+
+      await expect(peerPayClient.createPaymentToken({
         recipient: PrivateKey.fromRandom().toPublicKey().toString(),
-        amount: 0 
+        amount: 0
       }))
         .rejects.toThrow('Invalid payment details: recipient and valid amount are required')
     })
   })
 
-    // Test: sendPayment
-    describe('sendPayment', () => {
-      it('should call sendMessage with valid payment', async () => {
-        const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
-          status: 'success',
-          messageId: 'mockedMessageId'
-        });
-        
-        const payment = { recipient: 'recipientKey', amount: 3 };
-    
-        console.log('[TEST] Calling sendPayment...');
-        await peerPayClient.sendPayment(payment);
-        console.log('[TEST] sendPayment finished.');
-    
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-          recipient: 'recipientKey',
-          messageBox: 'payment_inbox',
-          body: expect.any(Object)
-        });
-      }, 10000);
-    });
-  
-    // Test: sendLivePayment
-    describe('sendLivePayment', () => {
-      it('should call createPaymentToken and sendLiveMessage with correct parameters', async () => {
-        jest.spyOn(peerPayClient, 'createPaymentToken').mockResolvedValue({
+  // Test: sendPayment
+  describe('sendPayment', () => {
+    it('should call sendMessage with valid payment', async () => {
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'mockedMessageId'
+      });
+
+      const payment = { recipient: 'recipientKey', amount: 3 };
+
+      console.log('[TEST] Calling sendPayment...');
+      await peerPayClient.sendPayment(payment);
+      console.log('[TEST] sendPayment finished.');
+
+      expect(sendMessageSpy).toHaveBeenCalledWith({
+        recipient: 'recipientKey',
+        messageBox: 'payment_inbox',
+        body: expect.any(Object)
+      });
+    }, 10000);
+  });
+
+  // Test: sendLivePayment
+  describe('sendLivePayment', () => {
+    it('should call createPaymentToken and sendLiveMessage with correct parameters', async () => {
+      jest.spyOn(peerPayClient, 'createPaymentToken').mockResolvedValue({
+        customInstructions: {
+          derivationPrefix: 'prefix',
+          derivationSuffix: 'suffix'
+        },
+        transaction: Array.from(new Uint8Array([1, 2, 3, 4, 5])),
+        amount: 2
+      });
+
+      jest.spyOn(peerPayClient, 'sendLiveMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'mockedMessageId'
+      });
+
+      const payment = { recipient: 'recipientKey', amount: 2 };
+      await peerPayClient.sendLivePayment(payment);
+
+      expect(peerPayClient.createPaymentToken).toHaveBeenCalledWith(payment);
+      expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
+        recipient: 'recipientKey',
+        messageBox: 'payment_inbox',
+        body: {
           customInstructions: {
             derivationPrefix: 'prefix',
             derivationSuffix: 'suffix'
           },
-          transaction: Array.from(new Uint8Array([1, 2, 3, 4, 5])),
+          transaction: expect.any(Array),
           amount: 2
-        });
-    
-        jest.spyOn(peerPayClient, 'sendLiveMessage').mockResolvedValue({
-          status: 'success',
-          messageId: 'mockedMessageId'
-        });
-    
-        const payment = { recipient: 'recipientKey', amount: 2 };
-        await peerPayClient.sendLivePayment(payment);
-    
-        expect(peerPayClient.createPaymentToken).toHaveBeenCalledWith(payment);
-        expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
-          recipient: 'recipientKey',
-          messageBox: 'payment_inbox',
-          body: {
-            customInstructions: {
-              derivationPrefix: 'prefix',
-              derivationSuffix: 'suffix'
-            },
-            transaction: expect.any(Array),
-            amount: 2
-          }
-        });
+        }
       });
     });
+  });
 
   // Test: acceptPayment
   describe('acceptPayment', () => {
@@ -185,7 +185,7 @@ describe('PeerPayClient Unit Tests', () => {
       jest.spyOn(peerPayClient, 'acceptPayment').mockResolvedValue(undefined);
       jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined);
       jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('acknowledged');
-  
+
       const payment = {
         messageId: 123,
         sender: 'senderKey',
@@ -195,9 +195,9 @@ describe('PeerPayClient Unit Tests', () => {
           amount: 2000
         }
       };
-  
+
       await peerPayClient.rejectPayment(payment);
-  
+
       expect(peerPayClient.acceptPayment).toHaveBeenCalledWith(payment);
       expect(peerPayClient.sendPayment).toHaveBeenCalledWith({
         recipient: 'senderKey',
@@ -236,14 +236,14 @@ describe('PeerPayClient Unit Tests', () => {
           })
         }
       ])
-  
+
       const payments = await peerPayClient.listIncomingPayments()
-  
+
       expect(payments).toHaveLength(2)
       expect(payments[0]).toHaveProperty('sender', 'sender1')
       expect(payments[0].token.amount).toBe(3)
       expect(payments[1]).toHaveProperty('sender', 'sender2')
       expect(payments[1].token.amount).toBe(9)
     })
-  })  
+  })
 })
