@@ -1,12 +1,11 @@
 import { spawn } from 'child_process'
 import { resolve } from 'path'
-import axios from 'axios' // To check if the server is already running
 
 let serverProcess: any | null = null
 
-async function isServerRunning (): Promise<boolean> {
+async function isServerRunning(): Promise<boolean> {
   try {
-    await axios.get('http://localhost:8080/health') // Use an actual health check route
+    await fetch('http://localhost:8080/health') // Use an actual health check route
     return true
   } catch {
     return false
@@ -16,7 +15,7 @@ async function isServerRunning (): Promise<boolean> {
 /**
  * Starts the MessageBoxServer as a separate process if not already running.
  */
-export async function startTestServer (): Promise<void> {
+export async function startTestServer(): Promise<void> {
   if (await isServerRunning()) {
     console.log('Test server already running.')
     return
@@ -51,7 +50,7 @@ export async function startTestServer (): Promise<void> {
 /**
  * Stops the MessageBoxServer process after tests.
  */
-export async function stopTestServer (): Promise<void> {
+export async function stopTestServer(): Promise<void> {
   if (serverProcess === null) {
     console.warn('Test server process is already stopped or undefined.')
     return

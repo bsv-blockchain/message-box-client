@@ -1,5 +1,5 @@
 import { MessageBoxClient, PeerMessage } from './MessageBoxClient.js'
-import { WalletClient, P2PKH, Utils, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, CreateActionResult } from '@bsv/sdk'
+import { WalletClient, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
 import { Logger } from './Utils/logger.js'
 
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'

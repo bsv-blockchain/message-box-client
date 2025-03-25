@@ -1,4 +1,4 @@
-import { MessageBoxClient, PeerMessage } from '../../MessageBoxClient'
+import { MessageBoxClient, PeerMessage } from '../../MessageBoxClient.js'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
