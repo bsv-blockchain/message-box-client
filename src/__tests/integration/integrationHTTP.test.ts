@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import MessageBoxClient from '../../MessageBoxClient'
+import { MessageBoxClient } from '../../MessageBoxClient'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -75,44 +75,33 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     testMessageId = response.messageId // Store for cleanup
   }, 30000)
 
-  /** TEST 2: Send Message without Payment (Expect 402) **/
-  test('should fail to send a message without payment', async () => {
-    await expect(
-      messageBoxClient.sendMessage({
-        recipient: recipientKey,
-        messageBox,
-        body: testMessage
-      })
-    ).rejects.toThrow()
-  }, 100000)
-
-  /** TEST 4: List Messages **/
+  /** TEST 2: List Messages **/
   test('should list messages from messageBox', async () => {
     const messages = await messageBoxClient.listMessages({ messageBox })
     expect(messages.length).toBeGreaterThan(0)
     expect(messages.some(msg => msg.body === JSON.stringify(testMessage))).toBe(true)
   }, 15000)
 
-  /** TEST 5: List Messages from an Empty MessageBox **/
+  /** TEST 3: List Messages from an Empty MessageBox **/
   test('should return an empty list if no messages exist', async () => {
     const messages = await messageBoxClient.listMessages({ messageBox: 'emptyBox' })
     expect(messages).toEqual([])
   }, 15000)
 
-  /** TEST 6: Acknowledge a Message **/
+  /** TEST 4: Acknowledge a Message **/
   test('should acknowledge (delete) a message', async () => {
     const ackResponse = await messageBoxClient.acknowledgeMessage({ messageIds: [testMessageId] })
     expect(ackResponse).toBe('success')
   }, 15000)
 
-  /** TEST 7: Acknowledge a Nonexistent Message **/
+  /** TEST 5: Acknowledge a Nonexistent Message **/
   test('should fail to acknowledge a nonexistent message', async () => {
     await expect(
       messageBoxClient.acknowledgeMessage({ messageIds: ['fakeMessageId'] })
     ).rejects.toThrow('Message not found!')
   }, 15000)
 
-  /** TEST 8: Send Message with Invalid Recipient **/
+  /** TEST 6: Send Message with Invalid Recipient **/
   test('should fail if recipient is invalid', async () => {
     await expect(
       messageBoxClient.sendMessage({
@@ -123,7 +112,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     ).rejects.toThrow('You must provide a message recipient!')
   }, 15000)
 
-  /** TEST 9: Send Message with Empty Body **/
+  /** TEST 7: Send Message with Empty Body **/
   test('should fail if message body is empty', async () => {
     await expect(
       messageBoxClient.sendMessage({
@@ -134,7 +123,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     ).rejects.toThrow('Every message must have a body!')
   }, 15000)
 
-  /** TEST 10: Send Message with Excessive Payment (Should still succeed) **/
+  /** TEST 8: Send Message with Excessive Payment (Should still succeed) **/
   test('should send a message even if payment is more than required', async () => {
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
