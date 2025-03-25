@@ -1,4 +1,4 @@
-import MessageBoxClient, { PeerMessage } from '../../MessageBoxClient.js'
+import { MessageBoxClient, PeerMessage } from '../../MessageBoxClient'
 import { WalletClient } from '@bsv/sdk'
 import { webcrypto } from 'crypto'
 
@@ -18,10 +18,6 @@ const messageBoxClient = new MessageBoxClient({
 
 describe('MessageBoxClient WebSocket Integration Tests', () => {
   beforeAll(async () => {
-    // console.log('Initializing WebSocket connection for tests...')
-    // await messageBoxClient.initializeConnection()
-    // console.log('WebSocket connection initialized.')
-
     const keyResult = await walletClient.getPublicKey({ identityKey: true })
     recipientKey = keyResult.publicKey
     console.log(`Recipient Key: ${recipientKey}`)

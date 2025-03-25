@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import PeerPayClient from '../PeerPayClient.js'
+import { PeerPayClient } from '../PeerPayClient'
 import { WalletClient, P2PKH, CreateHmacResult, PrivateKey, AtomicBEEF } from '@bsv/sdk'
 import { jest } from '@jest/globals'
 
