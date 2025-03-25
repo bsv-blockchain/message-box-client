@@ -2,7 +2,7 @@
 import { MessageBoxClient } from '../MessageBoxClient'
 import { WalletClient, AuthFetch } from '@bsv/sdk'
 
-// --- ✅ MOCK: WalletClient methods ---
+// ---  MOCK: WalletClient methods ---
 jest.spyOn(WalletClient.prototype, 'createHmac').mockResolvedValue({
   hmac: Array.from(new Uint8Array([1, 2, 3]))
 })
@@ -11,7 +11,7 @@ jest.spyOn(WalletClient.prototype, 'getPublicKey').mockResolvedValue({
   publicKey: 'mockIdentityKey'
 })
 
-// --- ✅ MOCK: AuthFetch responses ---
+// ---  MOCK: AuthFetch responses ---
 const defaultMockResponse: Partial<Response> = {
   json: async () => ({ status: 'success', message: 'Mocked response' }),
   headers: new Headers(),
