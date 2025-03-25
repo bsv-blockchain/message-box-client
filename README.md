@@ -247,4 +247,163 @@ The code in this repository is licensed under the [Open BSV License](https://www
 
 ---
 
+## PeerPayClient
+
+`PeerPayClient` is an extension of `MessageBoxClient` that enables real-time, peer-to-peer **Bitcoin payments** over the [BSV](https://bitcoinsv.com/) blockchain. It builds on top of MessageBox’s messaging infrastructure to send and receive payments in a store-and-forward or live WebSocket fashion.
+
+1. **Deterministic derivation:** Derives a unique output script for each payment using sender + recipient keys.  
+2. **Secure delivery:** Sends signed transactions and metadata via `MessageBoxClient` to a recipient’s `payment_inbox`.  
+3. **Live or delayed:** Supports both WebSocket and HTTP transport.  
+4. **Wallet integration:** Accepts payments directly into the user's wallet via `internalizeAction`.
+
+---
+
+## Quick Start
+
+```ts
+import { WalletClient } from '@bsv/sdk'
+import { PeerPayClient } from '@bsv/p2p'
+
+const wallet = new WalletClient()
+
+const peerPay = new PeerPayClient({
+  walletClient: wallet
+})
+
+// Send a payment of 50,000 sats to a recipient
+await peerPay.sendLivePayment({
+  recipient: '0277a2b...e3f4',
+  amount: 50000
+})
+
+// Listen for incoming payments
+await peerPay.listenForLivePayments({
+  onPayment: async (payment) => {
+    console.log('Received payment:', payment)
+
+    // Accept it into the wallet
+    await peerPay.acceptPayment(payment)
+  }
+})
+```
+---
+
+## API
+
+### Constructor
+
+```ts
+new PeerPayClient({
+  walletClient: WalletClient,
+  messageBoxHost?: string,
+  enableLogging?: boolean
+})
+```
+
+-   **walletClient**: Required. Your identity/signing wallet.
+
+-   **messageBoxHost**: Optional. Defaults to `https://messagebox.babbage.systems`.
+
+-   **enableLogging**: Optional. Enables verbose debug output.
+
+* * * * *
+
+### `sendPayment({ recipient, amount })`
+
+```ts
+await peerPay.sendPayment({
+  recipient: '0277a2b...',
+  amount: 10000
+})
+```
+
+-   Sends a payment using **HTTP**.
+
+-   Internally derives a public key for the recipient and builds a transaction.
+
+* * * * *
+
+### `sendLivePayment({ recipient, amount })`
+
+```ts
+await peerPay.sendLivePayment({
+  recipient: '0277a2b...',
+  amount: 15000
+})
+```
+-   Sends a payment using **WebSocket**, falling back to HTTP if the socket is unavailable.
+
+* * * * *
+
+### `listenForLivePayments({ onPayment })`
+
+```ts
+await peerPay.listenForLivePayments({
+  onPayment: (payment) => {
+    console.log('New live payment:', payment)
+  }
+})
+```
+-   Listens for incoming messages in the `payment_inbox`.
+
+-   Converts raw messages into `IncomingPayment` objects.
+
+```ts
+interface IncomingPayment {
+  messageId: number;
+  sender: string;
+  token: {
+    customInstructions: {
+      derivationPrefix: string;
+      derivationSuffix: string;
+    };
+    transaction: AtomicBEEF;
+    amount: number;
+  };
+}
+```
+* * * * *
+
+### `acceptPayment(payment)`
+
+```ts
+await peerPay.acceptPayment(payment)`
+```
+-   Accepts the payment using `internalizeAction`.
+
+-   Acknowledges the message to remove it from the message box.
+
+* * * * *
+
+### `rejectPayment(payment)`
+
+```ts
+await peerPay.rejectPayment(payment)`
+```
+-   Rejects and **refunds** the payment (minus 1000 sats).
+
+-   If the payment is too small to refund, it's simply acknowledged.
+
+* * * * *
+
+### `listIncomingPayments()`
+
+```ts
+const payments = await peerPay.listIncomingPayments()
+```
+-   Lists all incoming payments in the `payment_inbox` as `IncomingPayment` objects.
+
+* * * * *
+
+Advanced Usage
+--------------
+
+-   Use `createPaymentToken()` to generate a payment object without sending it immediately.
+
+-   Hook into `acknowledgeMessage()` to implement soft deletes, logging, or audit trails.
+
+-   Combine with other protocols for invoice, offer, or token-based workflows.
+
+
+
 **Happy messaging!** Build private, interactive, and decentralized applications using the BSV blockchain and `MessageBoxClient` for your P2P communication layer.
