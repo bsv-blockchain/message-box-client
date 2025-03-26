@@ -1,4 +1,4 @@
-# @bsv/p2p
+# BSV Peer-to-peer Messaging & Payment Tools
 
 **@bsv/p2p** is a toolkit for **peer-to-peer messaging and payments** on the BSV blockchain. It leverages a server-side **store-and-forward** system for message delivery (via `MessageBoxClient`) and also includes a higher-level **peer-to-peer payment** flow (via `PeerPayClient`). Both functionalities build on [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md) for mutual authentication and identity key management, allowing secure and  authenticated exchanges of data and BSV.
 
