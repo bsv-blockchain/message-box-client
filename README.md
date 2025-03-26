@@ -1,73 +1,122 @@
-# MessageBoxClient
+# @bsv/p2p
 
-A lightweight, extensible client for **store-and-forward** message delivery on the [BSV](https://bitcoinsv.com/) blockchain ecosystem. The `MessageBoxClient` allows parties to send and receive authenticated peer-to-peer (P2P) messages through a simple "message box" architecture:
+**@bsv/p2p** is a toolkit for **peer-to-peer messaging and payments** on the BSV blockchain. It leverages a server-side **store-and-forward** system for message delivery (via `MessageBoxClient`) and also includes a higher-level **peer-to-peer payment** flow (via `PeerPayClient`). Both functionalities build on [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md) for mutual authentication and identity key management, allowing secure and  authenticated exchanges of data and BSV.
 
-1. **Store-and-forward:** Messages are posted to a server (MessageBoxServer) under a named "message box."  
-2. **Ephemeral storage:** Once a recipient **acknowledges** receipt of the messages, they are **deleted** from the server.  
-3. **Mutual authentication:** Uses [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md)–based signing and verification to ensure only authorized peers can read or post messages.  
-4. **Simple integration:** Higher-level libraries (e.g., micropayment services, push-drop tokens, or specialized "tokenators") can be built on top of this client to facilitate more advanced workflows.
+## Table of Contents
 
-## Features
-
-- **Secure by default:** Mutual authentication with the [AuthFetch](https://github.com/bitcoin-sv/authfetch) and [AuthSocketClient](https://github.com/bitcoin-sv/authsocket) libraries.  
-- **P2P data exchange:** Support for direct encrypted messaging at higher layers, micropayments, tokens, and more.  
-- **Flexible transport:** Send messages via **WebSockets** (live/real-time) or **HTTP**. 
-- **Extensible:** The store-and-forward pattern can underpin email-like features, invoice/ticketing systems, interactive payments, etc.
+1. [Introduction](#introduction)  
+2. [Installation](#installation)  
+3. [Overview](#overview)  
+   - [MessageBoxClient](#messageboxclient-overview)  
+   - [PeerPayClient](#peerpayclient-overview)  
+4. [Quick Start Examples](#quick-start-examples)  
+   - [Using MessageBoxClient](#using-messageboxclient)  
+   - [Using PeerPayClient](#using-peerpayclient)  
+5. [API Reference](#api-reference)  
+   - [MessageBoxClient API](#messageboxclient-api)  
+   - [PeerPayClient API](#peerpayclient-api)  
+6. [Contributing](#contributing)  
+7. [License](#license)
 
 ---
 
-## Installation
+## 1. Introduction
+
+The **@bsv/p2p** library provides two main tools for peer-to-peer interaction:
+
+1. **MessageBoxClient** – A store-and-forward messaging system backed by a "message box" server. It supports authenticated sending, listing, and acknowledging (deleting) messages with a mutual-auth approach.  
+2. **PeerPayClient** – A higher-level payment client built on top of `MessageBoxClient`, enabling real-time, peer-to-peer Bitcoin payments on the BSV blockchain.
+
+Both clients use the [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md)-based authentication model. By integrating with a [WalletClient](https://github.com/bitcoin-sv), they can sign and verify messages, ensuring only authorized parties can send and receive.
+
+---
+
+## 2. Installation
 
 ```bash
 npm install @bsv/p2p
 ```
 
+The package exports both `MessageBoxClient` and `PeerPayClient`. You can import them individually in your JavaScript/TypeScript applications.
+
 ---
 
-## Quick Start
+## 3. Overview
 
-Below is a minimal example of using `MessageBoxClient` to:
+### 3.1. MessageBoxClient Overview
 
-1. Initialize the client with your wallet (for identity keys and signing).  
-2. Send a message to a peer.  
-3. List messages in a box.  
-4. Acknowledge them (which deletes them from the server).
+`MessageBoxClient` implements a **store-and-forward** architecture for P2P messages:
+
+- **Store-and-forward:** Messages are posted to a central MessageBoxServer under a named "message box" (like an inbox).  
+- **Ephemeral storage:** Once the recipient acknowledges the messages, they are removed from the server.  
+- **Mutual authentication:** Ensures only authorized peers can read or post messages, using [AuthFetch](https://github.com/bitcoin-sv/authfetch) and [AuthSocketClient](https://github.com/bitcoin-sv/authsocket).  
+- **Flexible transport:** Supports both **WebSockets** (for live, push-style delivery) and **HTTP** (for polling or fallback).  
+- **Extensible:** Can be the foundation for more advanced workflows (e.g., token-based messaging, invoice/ticket systems, etc.).
+
+#### Key Features
+
+1. **Secure by default** using Auth libraries for signing/verification.  
+2. **Real-time or delayed** delivery with sockets or HTTP.  
+3. **Easy integration** with higher-level protocols and services.  
+
+---
+
+### 3.2. PeerPayClient Overview
+
+`PeerPayClient` builds on `MessageBoxClient` to enable **peer-to-peer Bitcoin payments**:
+
+- **Secure Payment Delivery:** Utilizes the same store-and-forward or live WebSocket approach for delivering payment instructions.  
+- **Derivation & Signing:** Creates a unique output script for each payment, derived from sender + recipient keys.  
+- **Live or Delayed:** Works with web sockets for immediate notifications, or HTTP for an asynchronous flow.  
+- **Wallet Integration:** Accept or reject incoming payments. If accepted, the payment is “internalized” into your [BRC-100](https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0100.md) compatible wallet automatically.
+
+#### Key Features
+
+1. **Deterministic derivation** of payment information using the SPV-compliant [BRC-29](https://github.com/bitcoin-sv/BRCs/blob/master/payments/0029.md) protocol.  
+2. **Secure transaction passing** using the `MessageBoxClient` infrastructure.  
+3. **Live or offline** support for receiving payments.  
+4. **Easy acceptance/refunds** with built-in methods.  
+
+---
+
+## 4. Quick Start Examples
+
+Below are two condensed examples: one for basic messaging (MessageBoxClient) and another for peer-to-peer payments (PeerPayClient).
+
+### 4.1. Using MessageBoxClient
 
 ```js
 const { WalletClient } = require('@bsv/sdk')
-const MessageBoxClient = require('@bsv/p2p')
+const { MessageBoxClient } = require('@bsv/p2p')
 
-// Example identity key of the recipient (public key in hex).
+// Example identity key of the recipient (public key in hex)
 const johnSmithKey = '022600d2ef37d123fdcac7d25d7a464ada7acd3fb65a0daf85412140ee20884311'
 
 async function main() {
-  // 1) Create your WalletClient (this is how you obtain your identity key).
+  // 1) Create your WalletClient (this obtains your identity key)
   const myWallet = new WalletClient()
 
-  // 2) Create a MessageBoxClient, pointing to a MessageBoxServer host.
+  // 2) Create a MessageBoxClient, pointing to a MessageBoxServer
   const msgBoxClient = new MessageBoxClient({
     host: 'https://messagebox.babbage.systems',
     walletClient: myWallet
   })
 
-  // (Optional) Initialize a WebSocket connection
-  // This is required if you want to listen for inbound, live messages:
+  // (Optional) Initialize a WebSocket connection (for real-time listening)
   await msgBoxClient.initializeConnection()
 
-  // 3) Send a message to John's "demo_inbox" box
+  // 3) Send a message to John's "demo_inbox"
   await msgBoxClient.sendMessage({
     recipient: johnSmithKey,
     messageBox: 'demo_inbox',
     body: 'Hello John! This is a test message.'
   })
 
-  // (John logs in, queries messages in "demo_inbox", and acknowledges them...)
-  // For demonstration, let's assume we are also "John" and check his messages:
-
+  // 4) List messages in "demo_inbox"
   const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
   console.log(messages[0].body) // --> "Hello John! This is a test message."
 
-  // Acknowledge (and remove) them from the server
+  // 5) Acknowledge (and delete) them from the server
   await msgBoxClient.acknowledgeMessage({
     messageIds: messages.map(msg => msg.messageId.toString())
   })
@@ -76,11 +125,8 @@ async function main() {
 main().catch(console.error)
 ```
 
----
-
-## Listening for Live Messages
-
-If you want immediate push-style notifications (rather than polling via `listMessages`), you can join a WebSocket "room" and provide a callback. For example:
+**Listening for Live Messages**  
+If you want push-style message notifications instead of polling:
 
 ```js
 await msgBoxClient.listenForLiveMessages({
@@ -91,13 +137,55 @@ await msgBoxClient.listenForLiveMessages({
 })
 ```
 
-Messages sent to `demo_inbox` will now trigger the callback in real time. (You must call `initializeConnection()` or do any function that establishes a WebSocket before listening.)
+---
+
+### 4.2. Using PeerPayClient
+
+```ts
+import { WalletClient } from '@bsv/sdk'
+import { PeerPayClient } from '@bsv/p2p'
+
+async function paymentDemo() {
+  // 1) Create your wallet instance
+  const wallet = new WalletClient()
+
+  // 2) Create a PeerPayClient
+  const peerPay = new PeerPayClient({
+    walletClient: wallet
+  })
+
+  // 3) (Optional) Listen for incoming payments
+  await peerPay.listenForLivePayments({
+    onPayment: async (payment) => {
+      console.log('Received payment:', payment)
+      // Accept it into the wallet
+      await peerPay.acceptPayment(payment)
+    }
+  })
+
+  // 4) Send a payment of 50,000 sats to the recipient
+  await peerPay.sendLivePayment({
+    recipient: '0277a2b...e3f4', // recipient's public key
+    amount: 50000
+  })
+}
+
+paymentDemo().catch(console.error)
+```
+
+**Note:** `sendLivePayment` will try WebSocket first and fall back to HTTP if unavailable.
 
 ---
 
-## API
+## 5. API Reference
 
-### Constructor
+### 5.1. MessageBoxClient API
+
+```ts
+import { MessageBoxClient } from '@bsv/p2p'
+```
+
+#### Constructor
 
 ```ts
 new MessageBoxClient({
@@ -106,27 +194,23 @@ new MessageBoxClient({
 })
 ```
 
-Creates a new instance of `MessageBoxClient`.
-
-- **host**: The base URL of the MessageBoxServer instance you’re connecting to.  
-- **walletClient**: A [WalletClient](https://github.com/bitcoin-sv) instance for signing and identity key management.
+- **host**: (Optional) Base URL of the MessageBoxServer. Defaults to `https://messagebox.babbage.systems`.
+- **walletClient**: A [WalletClient](https://github.com/bitcoin-sv) instance for identity key and signing.
 
 ---
 
-### `initializeConnection()`
+#### `initializeConnection()`
 
 ```ts
 await msgBoxClient.initializeConnection()
 ```
 
-- Establishes a WebSocket connection to the specified `host` (if not already connected).  
-- Authenticates using your identity key from the `walletClient`.
-
-Useful if you plan to receive inbound messages via sockets.
+- Establishes a WebSocket connection to `host`.  
+- Authenticates with your wallet’s identity key.  
 
 ---
 
-### `listenForLiveMessages({ messageBox, onMessage })`
+#### `listenForLiveMessages({ messageBox, onMessage })`
 
 ```ts
 await msgBoxClient.listenForLiveMessages({
@@ -137,14 +221,12 @@ await msgBoxClient.listenForLiveMessages({
 })
 ```
 
-- **messageBox**: The name of the message box to listen on (e.g. `"my_inbox"`).  
-- **onMessage**: A callback invoked when a new message arrives.
-
-Internally joins a WebSocket "room" for real-time notifications.
+- Joins a WebSocket "room" for the specified `messageBox`.
+- Executes `onMessage` callback whenever a new message arrives.
 
 ---
 
-### `sendLiveMessage({ recipient, messageBox, body })`
+#### `sendLiveMessage({ recipient, messageBox, body })`
 
 ```ts
 const result = await msgBoxClient.sendLiveMessage({
@@ -154,17 +236,16 @@ const result = await msgBoxClient.sendLiveMessage({
 })
 ```
 
-- Attempts to send a message via WebSockets.  
-- If there’s no live socket or the socket fails, falls back to an HTTP request.  
-- **recipient**: Hex-encoded public key of the recipient.  
-- **messageBox**: The box name you’re delivering into (e.g. `"demo_inbox"`).  
-- **body**: The message payload (string or object).
+- Sends a message via WebSockets (falls back to HTTP if the socket is not connected).
+- **recipient**: Hex-encoded public key of the recipient.
+- **messageBox**: Name of the box (e.g., `"demo_inbox"`).
+- **body**: Message payload (string or object).
 
 Returns a `SendMessageResponse` with `{ status: 'success', messageId }` on success.
 
 ---
 
-### `sendMessage({ recipient, messageBox, body })`
+#### `sendMessage({ recipient, messageBox, body })`
 
 ```ts
 const response = await msgBoxClient.sendMessage({
@@ -174,23 +255,23 @@ const response = await msgBoxClient.sendMessage({
 })
 ```
 
-- Sends the message via HTTP only (no live socket).  
-- **recipient**: The recipient's identity key.  
-- **messageBox**: The message box name.  
-- **body**: The message payload (string or object).
+- Sends the message via HTTP only.
+- **recipient**: Recipient's identity key.
+- **messageBox**: Name of the box.
+- **body**: Message content (string or object).
 
 Returns `{ status: 'success', messageId }` on success.
 
 ---
 
-### `listMessages({ messageBox })`
+#### `listMessages({ messageBox })`
 
 ```ts
 const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
 ```
 
-- Lists messages for the given box.  
-- Returns an array of [`PeerMessage`](#PeerMessage).
+- Lists messages in the specified `messageBox`.
+- Returns an array of `PeerMessage`.
 
 ```ts
 interface PeerMessage {
@@ -205,7 +286,7 @@ interface PeerMessage {
 
 ---
 
-### `acknowledgeMessage({ messageIds })`
+#### `acknowledgeMessage({ messageIds })`
 
 ```ts
 await msgBoxClient.acknowledgeMessage({
@@ -213,84 +294,18 @@ await msgBoxClient.acknowledgeMessage({
 })
 ```
 
-- Acknowledges (and **deletes**) the specified messages from the server.  
-- **messageIds**: An array of message IDs (numbers as strings).  
-
-Returns a status string (usually `"success"`).
+- Acknowledges (and **deletes**) the specified messages from the server.
+- `messageIds`: Array of message IDs (as strings).
 
 ---
 
-## Advanced Usage
-
-**Joining / Leaving Specific Rooms:**  
-   - Use `joinRoom(messageBox)` if you want to explicitly control room membership (helpful when you want to handle multiple boxes in a single app).
-   - Use `leaveRoom(messageBox)` to leave a specific room.
-
-**Customizing Auth:**  
-   - `MessageBoxClient` uses `AuthFetch` and `AuthSocketClient` under the hood. You can swap these or tweak behaviors if hosting your own MessageBoxServer.
-
----
-
-## Contributing
-
-1. Clone this repository.  
-2. Install dependencies with `npm install`.  
-3. Make your changes, write tests, and open a PR.  
-
-We welcome bug reports, feature requests, and community contributions!
-
----
-
-## License
-
-The code in this repository is licensed under the [Open BSV License](https://www.bsvlicense.org/). Please see [LICENSE](./LICENSE) for more details.
-
----
-
-## PeerPayClient
-
-`PeerPayClient` is an extension of `MessageBoxClient` that enables real-time, peer-to-peer **Bitcoin payments** over the [BSV](https://bitcoinsv.com/) blockchain. It builds on top of MessageBox’s messaging infrastructure to send and receive payments in a store-and-forward or live WebSocket fashion.
-
-1. **Deterministic derivation:** Derives a unique output script for each payment using sender + recipient keys.  
-2. **Secure delivery:** Sends signed transactions and metadata via `MessageBoxClient` to a recipient’s `payment_inbox`.  
-3. **Live or delayed:** Supports both WebSocket and HTTP transport.  
-4. **Wallet integration:** Accepts payments directly into the user's wallet via `internalizeAction`.
-
----
-
-## Quick Start
+### 5.2. PeerPayClient API
 
 ```ts
-import { WalletClient } from '@bsv/sdk'
 import { PeerPayClient } from '@bsv/p2p'
-
-const wallet = new WalletClient()
-
-const peerPay = new PeerPayClient({
-  walletClient: wallet
-})
-
-// Send a payment of 50,000 sats to a recipient
-await peerPay.sendLivePayment({
-  recipient: '0277a2b...e3f4',
-  amount: 50000
-})
-
-// Listen for incoming payments
-await peerPay.listenForLivePayments({
-  onPayment: async (payment) => {
-    console.log('Received payment:', payment)
-
-    // Accept it into the wallet
-    await peerPay.acceptPayment(payment)
-  }
-})
 ```
----
 
-## API
-
-### Constructor
+#### Constructor
 
 ```ts
 new PeerPayClient({
@@ -300,15 +315,13 @@ new PeerPayClient({
 })
 ```
 
--   **walletClient**: Required. Your identity/signing wallet.
+- **walletClient**: (Required) Your identity/signing wallet.  
+- **messageBoxHost**: (Optional) Base URL of the MessageBoxServer. Defaults to `https://messagebox.babbage.systems`.  
+- **enableLogging**: (Optional) Enables verbose debug output.
 
--   **messageBoxHost**: Optional. Defaults to `https://messagebox.babbage.systems`.
+---
 
--   **enableLogging**: Optional. Enables verbose debug output.
-
-* * * * *
-
-### `sendPayment({ recipient, amount })`
+#### `sendPayment({ recipient, amount })`
 
 ```ts
 await peerPay.sendPayment({
@@ -317,13 +330,12 @@ await peerPay.sendPayment({
 })
 ```
 
--   Sends a payment using **HTTP**.
+- Sends a payment using HTTP.  
+- Internally derives a public key for the recipient and builds a transaction.
 
--   Internally derives a public key for the recipient and builds a transaction.
+---
 
-* * * * *
-
-### `sendLivePayment({ recipient, amount })`
+#### `sendLivePayment({ recipient, amount })`
 
 ```ts
 await peerPay.sendLivePayment({
@@ -331,11 +343,12 @@ await peerPay.sendLivePayment({
   amount: 15000
 })
 ```
--   Sends a payment using **WebSocket**, falling back to HTTP if the socket is unavailable.
 
-* * * * *
+- Sends a payment using WebSockets, falling back to HTTP if needed.
 
-### `listenForLivePayments({ onPayment })`
+---
+
+#### `listenForLivePayments({ onPayment })`
 
 ```ts
 await peerPay.listenForLivePayments({
@@ -344,9 +357,9 @@ await peerPay.listenForLivePayments({
   }
 })
 ```
--   Listens for incoming messages in the `payment_inbox`.
 
--   Converts raw messages into `IncomingPayment` objects.
+- Subscribes to live payments in the `payment_inbox`.
+- Invokes `onPayment` callback with an `IncomingPayment` object:
 
 ```ts
 interface IncomingPayment {
@@ -357,53 +370,57 @@ interface IncomingPayment {
       derivationPrefix: string;
       derivationSuffix: string;
     };
-    transaction: AtomicBEEF;
+    transaction: any; // typically your BSV transaction format
     amount: number;
   };
 }
 ```
-* * * * *
 
-### `acceptPayment(payment)`
+---
 
-```ts
-await peerPay.acceptPayment(payment)`
-```
--   Accepts the payment using `internalizeAction`.
-
--   Acknowledges the message to remove it from the message box.
-
-* * * * *
-
-### `rejectPayment(payment)`
+#### `acceptPayment(payment)`
 
 ```ts
-await peerPay.rejectPayment(payment)`
+await peerPay.acceptPayment(payment)
 ```
--   Rejects and **refunds** the payment (minus 1000 sats).
 
--   If the payment is too small to refund, it's simply acknowledged.
+- Accepts (and "internalizes") the payment into your wallet.  
+- Acknowledges the message, removing it from the inbox.
 
-* * * * *
+---
 
-### `listIncomingPayments()`
+#### `rejectPayment(payment)`
+
+```ts
+await peerPay.rejectPayment(payment)
+```
+
+- Rejects the payment, returning a **refund** to the sender (minus a small fee, e.g. 1000 sats).  
+- If the amount is too small to refund, the payment is simply acknowledged and dropped.
+
+---
+
+#### `listIncomingPayments()`
 
 ```ts
 const payments = await peerPay.listIncomingPayments()
 ```
--   Lists all incoming payments in the `payment_inbox` as `IncomingPayment` objects.
 
-* * * * *
+- Lists all incoming payments in the `payment_inbox`.  
+- Returns an array of `IncomingPayment` objects.
 
-Advanced Usage
---------------
+---
 
--   Use `createPaymentToken()` to generate a payment object without sending it immediately.
+## 6. Contributing
 
--   Hook into `acknowledgeMessage()` to implement soft deletes, logging, or audit trails.
+1. Clone this repository.  
+2. Install dependencies with `npm install`.  
+3. Make your changes, write tests, and open a PR.  
 
--   Combine with other protocols for invoice, offer, or token-based workflows.
+We welcome bug reports, feature requests, and community contributions!
 
+---
 
+## 7. License
 
-**Happy messaging!** Build private, interactive, and decentralized applications using the BSV blockchain and `MessageBoxClient` for your P2P communication layer.
+This code is licensed under the [Open BSV License](https://www.bsvlicense.org/). See [LICENSE](./LICENSE) for details.
