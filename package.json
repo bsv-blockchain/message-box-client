@@ -72,7 +72,7 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
-    "@bsv/authsocket-client": "^1.0.7",
+    "@bsv/authsocket-client": "^1.0.8",
     "@bsv/sdk": "^1.4.11"
   }
 }
