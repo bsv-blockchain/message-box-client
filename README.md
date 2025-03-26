@@ -4,19 +4,19 @@
 
 ## Table of Contents
 
-1. [Introduction](#introduction)  
-2. [Installation](#installation)  
-3. [Overview](#overview)  
-   - [MessageBoxClient](#messageboxclient-overview)  
-   - [PeerPayClient](#peerpayclient-overview)  
-4. [Quick Start Examples](#quick-start-examples)  
-   - [Using MessageBoxClient](#using-messageboxclient)  
-   - [Using PeerPayClient](#using-peerpayclient)  
-5. [API Reference](#api-reference)  
-   - [MessageBoxClient API](#messageboxclient-api)  
-   - [PeerPayClient API](#peerpayclient-api)  
-6. [Contributing](#contributing)  
-7. [License](#license)
+1. [Introduction](#1-introduction)  
+2. [Installation](#2-installation)  
+3. [Overview](#3-overview)  
+   - [MessageBoxClient](#31-messageboxclient-overview)  
+   - [PeerPayClient](#32-peerpayclient-overview)  
+4. [Quick Start Examples](#4-quick-start-examples)  
+   - [Using MessageBoxClient](#41-using-messageboxclient)  
+   - [Using PeerPayClient](#42-using-peerpayclient)  
+5. [API Reference](#5-api-reference)  
+   - [MessageBoxClient API](#51-messageboxclient-api)  
+   - [PeerPayClient API](#52-peerpayclient-api)  
+6. [Contributing](#6-contributing)  
+7. [License](#7-license)
 
 ---
 
