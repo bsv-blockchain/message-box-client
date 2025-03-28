@@ -163,7 +163,7 @@ describe('PeerPayClient Unit Tests', () => {
       jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('acknowledged')
 
       const payment = {
-        messageId: 123,
+        messageId: '123',
         sender: 'senderKey',
         token: {
           customInstructions: { derivationPrefix: 'prefix', derivationSuffix: 'suffix' },
@@ -187,7 +187,7 @@ describe('PeerPayClient Unit Tests', () => {
       jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('acknowledged');
 
       const payment = {
-        messageId: 123,
+        messageId: '123',
         sender: 'senderKey',
         token: {
           customInstructions: { derivationPrefix: 'prefix', derivationSuffix: 'suffix' },
@@ -214,7 +214,7 @@ describe('PeerPayClient Unit Tests', () => {
     it('should return parsed payment messages', async () => {
       jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
         {
-          messageId: 1,
+          messageId: '1',
           sender: 'sender1',
           created_at: '2025-03-05T12:00:00Z',
           updated_at: '2025-03-05T12:05:00Z',
@@ -225,7 +225,7 @@ describe('PeerPayClient Unit Tests', () => {
           })
         },
         {
-          messageId: 2,
+          messageId: '2',
           sender: 'sender2',
           created_at: '2025-03-05T12:10:00Z',
           updated_at: '2025-03-05T12:15:00Z',

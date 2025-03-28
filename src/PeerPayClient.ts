@@ -38,7 +38,7 @@ export interface PaymentToken {
  * Represents an incoming payment received via MessageBox.
  */
 export interface IncomingPayment {
-  messageId: number
+  messageId: string
   sender: string
   token: PaymentToken
 }
@@ -256,7 +256,7 @@ export class PeerPayClient extends MessageBoxClient {
       Logger.log(`[PP CLIENT] Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
       Logger.log(`[PP CLIENT] Acknowledging payment with messageId: ${payment.messageId}`)
 
-      await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] })
+      await this.acknowledgeMessage({ messageIds: [payment.messageId] })
 
       return { payment, paymentResult }
     } catch (error) {
@@ -287,7 +287,7 @@ export class PeerPayClient extends MessageBoxClient {
           Logger.warn('[PP CLIENT] Warning: authFetch is undefined! Ensure PeerPayClient is initialized correctly.');
         }
         Logger.log(`[PP CLIENT] authFetch instance:`, this.authFetch);
-        const response = await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] });
+        const response = await this.acknowledgeMessage({ messageIds: [payment.messageId] });
         Logger.log(`[PP CLIENT] Acknowledgment response: ${response}`);
       } catch (error: any) {
         if (error.message.includes('401')) {
@@ -314,7 +314,7 @@ export class PeerPayClient extends MessageBoxClient {
 
     try {
       Logger.log(`[PP CLIENT] Acknowledging message ${payment.messageId} after refunding...`);
-      await this.acknowledgeMessage({ messageIds: [String(payment.messageId)] });
+      await this.acknowledgeMessage({ messageIds: [payment.messageId] });
       Logger.log(`[PP CLIENT] Acknowledgment after refund successful.`);
     } catch (error: any) {
       Logger.error(`[PP CLIENT] Error acknowledging message after refund: ${error.message}`);
