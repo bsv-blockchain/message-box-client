@@ -6,7 +6,7 @@ import { Logger } from './Utils/logger.js'
  * Defines the structure of a PeerMessage
  */
 export interface PeerMessage {
-  messageId: number
+  messageId: string
   body: string
   sender: string
   created_at: string
