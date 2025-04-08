@@ -38,8 +38,6 @@ jest.mock('@bsv/authsocket-client', () => ({
   AuthSocketClient: jest.fn(() => mockSocket)
 }))
 
-
-
 // Optional: Global WebSocket override (not strictly needed with AuthSocketClient)
 class MockWebSocket {
   static CONNECTING = 0
@@ -62,12 +60,12 @@ describe('MessageBoxClient', () => {
     jest.clearAllMocks()
   })
 
-  const VALID_SEND_RESULT = {
-    body: JSON.stringify({
-      status: 200,
-      message: 'Your message has been sent!'
-    })
-  }
+  // const VALID_SEND_RESULT = {
+  //   body: JSON.stringify({
+  //     status: 200,
+  //     message: 'Your message has been sent!'
+  //   })
+  // }
 
   const VALID_LIST_AND_READ_RESULT = {
     body: JSON.stringify({
@@ -110,7 +108,7 @@ describe('MessageBoxClient', () => {
 
     // Simulate server response
     setTimeout(() => {
-      socketOnMap['authenticationSuccess']?.({ status: 'ok' })
+      socketOnMap.authenticationSuccess?.({ status: 'ok' })
     }, 100)
 
     await expect(connection).resolves.toBeUndefined()
@@ -122,11 +120,11 @@ describe('MessageBoxClient', () => {
     // Bypass the real connection logic
     jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
 
-      // Manually set identity key
-      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+    // Manually set identity key
+    ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
-      // Simulate WebSocket not initialized
-      ; (messageBoxClient as any).socket = null
+    // Simulate WebSocket not initialized
+    ; (messageBoxClient as any).socket = null
 
     // Expect it to fall back to HTTP and succeed
     const result = await messageBoxClient.sendLiveMessage({
@@ -148,7 +146,7 @@ describe('MessageBoxClient', () => {
     const connection = messageBoxClient.initializeConnection()
 
     setTimeout(() => {
-      socketOnMap['authenticationSuccess']?.({ status: 'ok' })
+      socketOnMap.authenticationSuccess?.({ status: 'ok' })
     }, 100)
 
     await connection
@@ -173,7 +171,7 @@ describe('MessageBoxClient', () => {
 
     // Simulate WebSocket auth success
     setTimeout(() => {
-      socketOnMap['authenticationSuccess']?.({ status: 'ok' })
+      socketOnMap.authenticationSuccess?.({ status: 'ok' })
     }, 100)
 
     await connection
@@ -225,7 +223,6 @@ describe('MessageBoxClient', () => {
       status: 200
     } as unknown as Response)
 
-
     const result = await messageBoxClient.sendMessage({
       recipient: 'mockIdentityKey',
       messageBox: 'test_inbox',
@@ -237,6 +234,8 @@ describe('MessageBoxClient', () => {
 
   it('Lists available messages', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_LIST_AND_READ_RESULT.body),
       headers: new Headers(),
@@ -251,6 +250,8 @@ describe('MessageBoxClient', () => {
 
   it('Acknowledges a message', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_ACK_RESULT.body),
       headers: new Headers(),
@@ -284,6 +285,7 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when listMessages() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -297,6 +299,7 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when acknowledgeMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -388,9 +391,9 @@ describe('MessageBoxClient', () => {
 
     // Simulate connection + disconnection + auth success
     setTimeout(() => {
-      socketOnMap['connect']?.()
-      socketOnMap['disconnect']?.()
-      socketOnMap['authenticationSuccess']?.({ status: 'ok' })
+      socketOnMap.connect?.()
+      socketOnMap.disconnect?.()
+      socketOnMap.authenticationSuccess?.({ status: 'ok' })
     }, 100)
 
     await messageBoxClient.initializeConnection()
@@ -520,5 +523,81 @@ describe('MessageBoxClient', () => {
     await expect(messageBoxClient.acknowledgeMessage({
       messageIds: 'invalid' as any // Not an array
     })).rejects.toThrow('Message IDs array cannot be empty')
+  })
+
+  it('determines target host using overlay when enabled', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, overlayEnabled: true })
+
+    const mockResponse: Response = {
+      json: async () => ({ ads: [{ identity_key: 'mockIdentityKey', host: 'https://overlay-host.com' }] }),
+      ok: true,
+      status: 200,
+      headers: new Headers()
+    } as unknown as Response
+
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(mockResponse)
+
+    const result = await (client as any).determineTargetHost('mockIdentityKey')
+    expect(result).toBe('https://overlay-host.com')
+  })
+
+  it('falls back to default host if overlay has no match or disabled', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, overlayEnabled: false })
+    const result = await (client as any).determineTargetHost('mockIdentityKey')
+    expect(result).toBe('https://messagebox.babbage.systems')
+  })
+
+  it('calls /overlay/anoint to anoint host', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient })
+
+    const mockResponse: Response = {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'success' }),
+      headers: new Headers()
+    } as unknown as Response
+
+    const fetchSpy = jest.spyOn(client.authFetch, 'fetch').mockResolvedValue(mockResponse)
+
+    await client.anointHost('https://my-host.example.com')
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://messagebox.babbage.systems/overlay/anoint',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ host: 'https://my-host.example.com' })
+      })
+    )
+  })
+
+  it('returns null when overlay ad list is not an array', async () => {
+    const messageBoxClient = new MessageBoxClient({
+      walletClient: new WalletClient(),
+      overlayEnabled: true
+    })
+
+    const malformedResponse = {
+      json: async () => ({ ads: 'not-an-array' }),
+      ok: true,
+      status: 200,
+      headers: new Headers()
+    }
+
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(malformedResponse as unknown as Response)
+
+    const result = await (messageBoxClient as any).resolveHostForRecipient('someKey')
+    expect(result).toBeNull()
+  })
+
+  it('returns null when overlay ad fetch throws an error', async () => {
+    const messageBoxClient = new MessageBoxClient({
+      walletClient: new WalletClient(),
+      overlayEnabled: true
+    })
+
+    jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network failed'))
+
+    const result = await (messageBoxClient as any).resolveHostForRecipient('someKey')
+    expect(result).toBeNull()
   })
 })

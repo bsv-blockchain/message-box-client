@@ -47,6 +47,14 @@ export interface ListMessagesParams {
 }
 
 /**
+ * Defines the structure of an overlay ad
+ */
+interface OverlayAd {
+  identity_key: string
+  host: string
+}
+
+/**
  * Extendable class for interacting with a MessageBoxServer
  */
 export class MessageBoxClient {
@@ -56,30 +64,35 @@ export class MessageBoxClient {
   private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
 
-  constructor({
+  constructor ({
     host = 'https://messagebox.babbage.systems',
     walletClient,
-    enableLogging = false
-  }: { host?: string, walletClient: WalletClient, enableLogging?: boolean }) {
-    this.host = host;
-    this.walletClient = walletClient;
-    this.authFetch = new AuthFetch(this.walletClient);
-  
-    // Enable or disable logging based on user preference
-    if (enableLogging === true) {
-      Logger.enable();
+    enableLogging = false,
+    overlayEnabled = false
+  }: {
+    host?: string
+    walletClient: WalletClient
+    enableLogging?: boolean
+    overlayEnabled?: boolean
+  }) {
+    this.host = host
+    this.walletClient = walletClient
+    this.authFetch = new AuthFetch(this.walletClient)
+    this.overlayEnabled = overlayEnabled
+
+    if (enableLogging) {
+      Logger.enable()
     }
   }
-  
 
   /**
   * Getter for joinedRooms to use in tests
   */
-  public getJoinedRooms(): Set<string> {
+  public getJoinedRooms (): Set<string> {
     return this.joinedRooms
   }
 
-  public getIdentityKey(): string {
+  public getIdentityKey (): string {
     if (this.myIdentityKey == null) {
       throw new Error('[MB CLIENT ERROR] Identity key is not set')
     }
@@ -87,14 +100,14 @@ export class MessageBoxClient {
   }
 
   // Add a getter for testing purposes
-  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
   /**
   * Establish an initial WebSocket connection (optional)
   */
-  async initializeConnection(): Promise<void> {
+  async initializeConnection (): Promise<void> {
     Logger.log('[MB CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -174,14 +187,80 @@ export class MessageBoxClient {
   }
 
   /**
+   * Looks up the most recently anointed host for a recipient using the overlay.
+   */
+  private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.host}/overlay/ads`)
+      const { ads } = await response.json()
+
+      if (!Array.isArray(ads)) {
+        Logger.warn('[MB CLIENT] Overlay ad response was not an array.')
+        return null
+      }
+
+      const matchingAd: OverlayAd | undefined = ads.find((ad) => ad.identity_key === identityKey)
+
+      if (matchingAd != null && typeof matchingAd.host === 'string' && matchingAd.host.trim() !== '') {
+        Logger.log(`[MB CLIENT] Found overlay host for ${identityKey}: ${matchingAd?.host}`)
+        return matchingAd.host
+      } else {
+        Logger.warn(`[MB CLIENT] No overlay host found for ${identityKey}`)
+        return null
+      }
+    } catch (error) {
+      Logger.error('[MB CLIENT ERROR] Failed to resolve host from overlay:', error)
+      return null
+    }
+  }
+
+  /**
+   * Determines the appropriate host for the recipient (local or overlay).
+   */
+  private async determineTargetHost (recipient: string): Promise<string> {
+    if (!this.overlayEnabled) {
+      return this.host
+    }
+
+    const overlayHost = await this.resolveHostForRecipient(recipient)
+    return overlayHost ?? this.host
+  }
+
+  /**
+   * Anoints a new host for the overlay.
+   */
+  async anointHost (host: string): Promise<void> {
+    const response = await this.authFetch.fetch(`${this.host}/overlay/anoint`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: this.getIdentityKey() // <-- Fix!
+      },
+      body: JSON.stringify({ host })
+    })
+
+    if (!response.ok) {
+      const body = await response.text()
+      throw new Error(`Failed to anoint host: ${response.statusText} - ${body}`)
+    }
+
+    Logger.log('[MB CLIENT] Host anointed successfully.')
+  }
+
+  /**
  * Tracks rooms the client has already joined
  */
   private readonly joinedRooms: Set<string> = new Set()
 
   /**
+   * Indicates whether overlay is enabled or not
+   */
+  private readonly overlayEnabled: boolean
+
+  /**
    * Join a WebSocket room before sending messages
    */
-  async joinRoom(messageBox: string): Promise<void> {
+  async joinRoom (messageBox: string): Promise<void> {
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -211,7 +290,7 @@ export class MessageBoxClient {
     }
   }
 
-  async listenForLiveMessages({
+  async listenForLiveMessages ({
     onMessage,
     messageBox
   }: {
@@ -241,7 +320,7 @@ export class MessageBoxClient {
   /**
  * Sends a message over WebSocket if connected; falls back to HTTP otherwise.
  */
-  async sendLiveMessage({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
+  async sendLiveMessage ({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
@@ -257,7 +336,8 @@ export class MessageBoxClient {
 
     if (this.socket == null || !this.socket.connected) {
       Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
-      return await this.sendMessage({ recipient, messageBox, body })
+      const targetHost = await this.determineTargetHost(recipient)
+      return await this.sendMessage({ recipient, messageBox, body }, targetHost)
     }
 
     // Generate message ID
@@ -281,31 +361,34 @@ export class MessageBoxClient {
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
       let handled = false
-    
+
       const ackHandler = (response?: SendMessageResponse): void => {
         if (handled) return
         handled = true
-    
+
         const socketAny = this.socket as any
         if (typeof socketAny?.off === 'function') {
           socketAny.off(ackEvent, ackHandler)
         }
-    
+
         Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
-    
+
         if (response == null || response.status !== 'success') {
           Logger.warn('[MB CLIENT] WebSocket message failed, falling back to HTTP')
-          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
+          this.determineTargetHost(recipient)
+            .then(async (host) => {
+              return await this.sendMessage({ recipient, messageBox, body }, host)
+            })
+            .then(resolve)
+            .catch(reject)
         } else {
           Logger.log('[MB CLIENT] Message sent successfully via WebSocket:', response)
           resolve(response)
         }
-      }
-    
-      // Register listener before emitting
+      } // ✅ This closing brace was missing
+
       this.socket?.on(ackEvent, ackHandler)
-    
-      // Send the message
+
       this.socket?.emit('sendMessage', {
         roomId,
         message: {
@@ -314,17 +397,21 @@ export class MessageBoxClient {
           body: typeof body === 'string' ? body : JSON.stringify(body)
         }
       })
-    
-      // Timeout fallback after 10 seconds
+
       setTimeout(() => {
         if (!handled) {
           handled = true
           const socketAny = this.socket as any
           if (typeof socketAny?.off === 'function') {
-            socketAny.off(ackEvent, ackHandler) // 🧹 Clean up listener
+            socketAny.off(ackEvent, ackHandler)
           }
           Logger.warn('[CLIENT] WebSocket acknowledgment timed out, falling back to HTTP')
-          this.sendMessage({ recipient, messageBox, body }).then(resolve).catch(reject)
+          this.determineTargetHost(recipient)
+            .then(async (host) => {
+              return await this.sendMessage({ recipient, messageBox, body }, host)
+            })
+            .then(resolve)
+            .catch(reject)
         }
       }, 10000)
     })
@@ -333,7 +420,7 @@ export class MessageBoxClient {
   /**
    * Leaves a WebSocket room.
    */
-  async leaveRoom(messageBox: string): Promise<void> {
+  async leaveRoom (messageBox: string): Promise<void> {
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -354,7 +441,7 @@ export class MessageBoxClient {
   /**
    * Closes WebSocket connection.
    */
-  async disconnectWebSocket(): Promise<void> {
+  async disconnectWebSocket (): Promise<void> {
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -367,7 +454,10 @@ export class MessageBoxClient {
   /**
    * Sends a message via HTTP
    */
-  async sendMessage(message: SendMessageParams): Promise<SendMessageResponse> {
+  async sendMessage (
+    message: SendMessageParams,
+    overrideHost?: string
+  ): Promise<SendMessageResponse> {
     if (message.recipient == null || message.recipient.trim() === '') {
       throw new Error('You must provide a message recipient!')
     }
@@ -398,10 +488,11 @@ export class MessageBoxClient {
     }
 
     try {
-      Logger.log('[MB CLIENT] Sending HTTP request to:', `${this.host}/sendMessage`)
+      const finalHost = overrideHost ?? this.host
+
+      Logger.log('[MB CLIENT] Sending HTTP request to:', `${finalHost}/sendMessage`)
       Logger.log('[MB CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
 
-      // Ensure the identity key is fetched before sending
       if (this.myIdentityKey == null || this.myIdentityKey === '') {
         try {
           const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
@@ -413,24 +504,21 @@ export class MessageBoxClient {
         }
       }
 
-      // Now create the headers AFTER ensuring identityKey is set
       const authHeaders = {
         'Content-Type': 'application/json'
       }
 
       Logger.log('[MB CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
 
-      const response = await this.authFetch.fetch(`${this.host}/sendMessage`, {
+      const response = await this.authFetch.fetch(`${finalHost}/sendMessage`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify(requestBody)
       })
 
-      // Debug: Check if bodyUsed before reading
       Logger.log('[MB CLIENT] Raw Response:', response)
       Logger.log('[MB CLIENT] Response Body Used?', response.bodyUsed)
 
-      // Read body only if it's not already consumed
       if (response.bodyUsed) {
         throw new Error('[MB CLIENT ERROR] Response body has already been used!')
       }
@@ -458,16 +546,22 @@ export class MessageBoxClient {
   }
 
   /**
-   * Lists messages from MessageBoxServer
-   */
-  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+ * Lists messages from MessageBoxServer or an overlay host
+ */
+  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const response = await this.authFetch.fetch(`${this.host}/listMessages`, {
+    const identityKey = this.getIdentityKey()
+    const targetHost = await this.determineTargetHost(identityKey)
+
+    const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: this.getIdentityKey() // <-- Fix!
+      },
       body: JSON.stringify({ messageBox })
     })
 
@@ -481,18 +575,24 @@ export class MessageBoxClient {
   }
 
   /**
-   * Acknowledges one or more messages as having been received
-   */
-  async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+ * Acknowledges one or more messages as having been received
+ */
+  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
 
     Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
 
-    const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
+    const identityKey = this.getIdentityKey()
+    const targetHost = await this.determineTargetHost(identityKey)
+
+    const acknowledged = await this.authFetch.fetch(`${targetHost}/acknowledgeMessage`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: this.getIdentityKey() // <-- Fix!
+      },
       body: JSON.stringify({ messageIds })
     })
 
@@ -503,5 +603,26 @@ export class MessageBoxClient {
     }
 
     return parsedAcknowledged.status
+  }
+
+  // async rebroadcastAdvertisement (): Promise<void> {
+  //   const response = await this.authFetch.fetch(`${this.host}/overlay/rebroadcast`, {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' }
+  //   })
+
+  //   if (!response.ok) {
+  //     const body = await response.text()
+  //     throw new Error(`Failed to rebroadcast: ${response.statusText} - ${body}`)
+  //   }
+
+  //   Logger.log('[MB CLIENT] Rebroadcast triggered successfully.')
+  // }
+
+  async getOverlayAds (): Promise<OverlayAd[]> {
+    const response = await fetch(`${this.host}/overlay/ads`)
+    const parsed = await response.json()
+    if (!Array.isArray(parsed.ads)) throw new Error('Invalid ad list')
+    return parsed.ads
   }
 }
