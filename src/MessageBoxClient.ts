@@ -205,7 +205,7 @@ export class MessageBoxClient {
   private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
     try {
       const result = await this.lookupResolver.query({
-        service: 'ls_messagebox',
+        service: 'lsmessagebox',
         query: { identityKey }
       })
 

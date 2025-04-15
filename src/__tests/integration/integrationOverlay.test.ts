@@ -17,14 +17,16 @@ const clientA = new MessageBoxClient({
   host: MESSAGEBOX_HOST,
   walletClient: walletA,
   overlayEnabled: true,
-  networkPreset: 'local'
+  networkPreset: 'local',
+  enableLogging: true
 })
 
 const clientB = new MessageBoxClient({
   host: MESSAGEBOX_HOST,
   walletClient: walletB,
   overlayEnabled: true,
-  networkPreset: 'local'
+  networkPreset: 'local',
+  enableLogging: true
 })
 
 let identityKeyA: string
