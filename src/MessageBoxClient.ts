@@ -1,4 +1,4 @@
-import { WalletClient, AuthFetch } from '@bsv/sdk'
+import { WalletClient, AuthFetch, LookupResolver } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
 
@@ -49,10 +49,10 @@ export interface ListMessagesParams {
 /**
  * Defines the structure of an overlay ad
  */
-interface OverlayAd {
-  identity_key: string
-  host: string
-}
+// interface OverlayAd {
+//   identity_key: string
+//   host: string
+// }
 
 /**
  * Extendable class for interacting with a MessageBoxServer
@@ -63,22 +63,35 @@ export class MessageBoxClient {
   private readonly walletClient: WalletClient
   private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
+  private readonly overlayEnabled: boolean
+  private readonly joinedRooms: Set<string> = new Set()
+  private readonly lookupResolver: LookupResolver
 
   constructor ({
     host = 'https://messagebox.babbage.systems',
     walletClient,
     enableLogging = false,
-    overlayEnabled = false
+    overlayEnabled = false,
+    networkPreset = 'local'
   }: {
     host?: string
     walletClient: WalletClient
     enableLogging?: boolean
     overlayEnabled?: boolean
+    networkPreset?: 'local' | 'mainnet' | 'testnet'
   }) {
     this.host = host
     this.walletClient = walletClient
     this.authFetch = new AuthFetch(this.walletClient)
     this.overlayEnabled = overlayEnabled
+
+    // ✅ Configure LookupResolver with dynamic networkPreset
+    // const isBrowser = typeof window !== 'undefined'
+    // const isLocalhost = isBrowser ? location.hostname === 'localhost' : false
+
+    this.lookupResolver = new LookupResolver({
+      networkPreset
+    })
 
     if (enableLogging) {
       Logger.enable()
@@ -187,31 +200,38 @@ export class MessageBoxClient {
   }
 
   /**
-   * Looks up the most recently anointed host for a recipient using the overlay.
+   * Looks up the most recently anointed host for a recipient using the overlay via LookupResolver.
    */
   private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
     try {
-      const response = await fetch(`${this.host}/overlay/ads`)
-      const { ads } = await response.json()
+      const result = await this.lookupResolver.query({
+        service: 'ls_messagebox',
+        query: { identityKey }
+      })
 
-      if (!Array.isArray(ads)) {
-        Logger.warn('[MB CLIENT] Overlay ad response was not an array.')
-        return null
-      }
-
-      const matchingAd: OverlayAd | undefined = ads.find((ad) => ad.identity_key === identityKey)
-
-      if (matchingAd != null && typeof matchingAd.host === 'string' && matchingAd.host.trim() !== '') {
-        Logger.log(`[MB CLIENT] Found overlay host for ${identityKey}: ${matchingAd?.host}`)
-        return matchingAd.host
+      if (
+        result != null &&
+        typeof result === 'object' &&
+        'type' in result &&
+        result.type === 'freeform' &&
+        'hosts' in result &&
+        Array.isArray((result as any).hosts)
+      ) {
+        const hosts = (result as any).hosts
+        if (hosts.length > 0) {
+          Logger.log(`[MB CLIENT] Host found via LookupResolver: ${String(hosts[0])}`)
+          return hosts[0]
+        } else {
+          Logger.warn(`[MB CLIENT] LookupResolver returned empty host list for ${identityKey}`)
+        }
       } else {
-        Logger.warn(`[MB CLIENT] No overlay host found for ${identityKey}`)
-        return null
+        Logger.warn(`[MB CLIENT] Unexpected result from LookupResolver: ${JSON.stringify(result)}`)
       }
     } catch (error) {
-      Logger.error('[MB CLIENT ERROR] Failed to resolve host from overlay:', error)
-      return null
+      Logger.error('[MB CLIENT ERROR] Failed to resolve host from LookupResolver:', error)
     }
+
+    return null
   }
 
   /**
@@ -225,37 +245,6 @@ export class MessageBoxClient {
     const overlayHost = await this.resolveHostForRecipient(recipient)
     return overlayHost ?? this.host
   }
-
-  /**
-   * Anoints a new host for the overlay.
-   */
-  async anointHost (host: string): Promise<void> {
-    const response = await this.authFetch.fetch(`${this.host}/overlay/anoint`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: this.getIdentityKey() // <-- Fix!
-      },
-      body: JSON.stringify({ host })
-    })
-
-    if (!response.ok) {
-      const body = await response.text()
-      throw new Error(`Failed to anoint host: ${response.statusText} - ${body}`)
-    }
-
-    Logger.log('[MB CLIENT] Host anointed successfully.')
-  }
-
-  /**
- * Tracks rooms the client has already joined
- */
-  private readonly joinedRooms: Set<string> = new Set()
-
-  /**
-   * Indicates whether overlay is enabled or not
-   */
-  private readonly overlayEnabled: boolean
 
   /**
    * Join a WebSocket room before sending messages
@@ -546,6 +535,31 @@ export class MessageBoxClient {
   }
 
   /**
+   * Allows a user to explicitly anoint a host to receive their messages.
+   */
+  async anointHost (host: string): Promise<void> {
+    if (!host.startsWith('http')) {
+      throw new Error('Invalid host URL')
+    }
+
+    const identityKey = this.getIdentityKey()
+
+    const response = await this.authFetch.fetch(`${this.host}/overlay/anoint`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: identityKey
+      },
+      body: JSON.stringify({ host })
+    })
+
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(`Request failed with status: ${response.status} - ${message}`)
+    }
+  }
+
+  /**
  * Lists messages from MessageBoxServer or an overlay host
  */
   async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
@@ -603,26 +617,5 @@ export class MessageBoxClient {
     }
 
     return parsedAcknowledged.status
-  }
-
-  // async rebroadcastAdvertisement (): Promise<void> {
-  //   const response = await this.authFetch.fetch(`${this.host}/overlay/rebroadcast`, {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' }
-  //   })
-
-  //   if (!response.ok) {
-  //     const body = await response.text()
-  //     throw new Error(`Failed to rebroadcast: ${response.statusText} - ${body}`)
-  //   }
-
-  //   Logger.log('[MB CLIENT] Rebroadcast triggered successfully.')
-  // }
-
-  async getOverlayAds (): Promise<OverlayAd[]> {
-    const response = await fetch(`${this.host}/overlay/ads`)
-    const parsed = await response.json()
-    if (!Array.isArray(parsed.ads)) throw new Error('Invalid ad list')
-    return parsed.ads
   }
 }
