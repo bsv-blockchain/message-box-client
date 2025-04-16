@@ -1,6 +1,15 @@
-import { WalletClient, AuthFetch, LookupResolver } from '@bsv/sdk'
+import {
+  WalletClient,
+  AuthFetch,
+  LookupResolver,
+  TopicBroadcaster,
+  Utils,
+  Script,
+  Transaction
+} from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
+import type { Advertisement } from './types.js'
 
 /**
  * Defines the structure of a PeerMessage
@@ -84,10 +93,6 @@ export class MessageBoxClient {
     this.walletClient = walletClient
     this.authFetch = new AuthFetch(this.walletClient)
     this.overlayEnabled = overlayEnabled
-
-    // ✅ Configure LookupResolver with dynamic networkPreset
-    // const isBrowser = typeof window !== 'undefined'
-    // const isLocalhost = isBrowser ? location.hostname === 'localhost' : false
 
     this.lookupResolver = new LookupResolver({
       networkPreset
@@ -537,26 +542,55 @@ export class MessageBoxClient {
   /**
    * Allows a user to explicitly anoint a host to receive their messages.
    */
-  async anointHost (host: string): Promise<void> {
+  async anointHost (host: string): Promise<{ txid: string }> {
     if (!host.startsWith('http')) {
       throw new Error('Invalid host URL')
     }
 
     const identityKey = this.getIdentityKey()
+    const timestamp = new Date().toISOString()
+    const nonce = Math.random().toString(36).slice(2)
 
-    const response = await this.authFetch.fetch(`${this.host}/overlay/anoint`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: identityKey
-      },
-      body: JSON.stringify({ host })
+    const payload = [
+      ...Utils.toArray(host, 'utf8'),
+      ...Utils.toArray(timestamp, 'utf8'),
+      ...Utils.toArray(nonce, 'utf8')
+    ]
+
+    const { signature } = await this.walletClient.createSignature({
+      protocolID: [0, 'MBSERVEAD'],
+      keyID: '1',
+      counterparty: identityKey,
+      data: payload
     })
 
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(`Request failed with status: ${response.status} - ${message}`)
+    const advertisement: Advertisement = {
+      identityKey,
+      host,
+      timestamp,
+      nonce,
+      signature: Utils.toHex(signature),
+      protocol: 'MBSERVEAD',
+      version: '1.0'
     }
+
+    const adHex = Buffer.from(JSON.stringify(advertisement)).toString('hex')
+    const script = Script.fromASM(`0 OP_RETURN ${adHex}`)
+
+    const tx = new Transaction()
+    tx.addOutput({ satoshis: 1, lockingScript: script })
+
+    const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
+      networkPreset: 'local'
+    })
+
+    const result = await broadcaster.broadcast(tx)
+
+    if (result.status !== 'success') {
+      throw new Error(`Broadcast failed: ${result.description}`)
+    }
+
+    return { txid: result.txid }
   }
 
   /**

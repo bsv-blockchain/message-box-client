@@ -7,8 +7,7 @@ import { webcrypto } from 'crypto'
 
 jest.setTimeout(20000)
 
-// const OVERLAY_HOST = 'http://localhost:8080' // LARS running MessageBoxTopicManager
-const MESSAGEBOX_HOST = 'http://localhost:5001' // MessageBoxServer
+const MESSAGEBOX_HOST = 'http://localhost:5001' // MessageBoxServer running
 
 const walletA = new WalletClient('json-api', 'localhost')
 const walletB = new WalletClient('json-api', 'localhost')
@@ -45,66 +44,60 @@ afterAll(async () => {
 })
 
 describe('Overlay Integration Tests', () => {
-  test('broadcast advertisement for identity A', async () => {
-    await clientA.anointHost(MESSAGEBOX_HOST)
-    await new Promise(resolve => setTimeout(resolve, 3000)) // allow propagation
+  const selfBox = 'overlay_self_box'
+  const peerBox = 'forwarded_overlay_box'
+
+  test('clientA broadcasts overlay advertisement', async () => {
+    const result = await clientA.anointHost(MESSAGEBOX_HOST)
+    expect(result).toHaveProperty('txid')
+    await new Promise(resolve => setTimeout(resolve, 3000))
   })
 
-  test('clientA resolves overlay host for identity A', async () => {
+  test('clientA resolves own host via overlay', async () => {
     const resolved = await (clientA as any).resolveHostForRecipient(identityKeyA)
     expect(resolved).toBe(MESSAGEBOX_HOST)
   })
 
-  test('send message from clientA to self using overlay', async () => {
-    const messageBox = 'overlay_self_box'
-    const body = 'hello via overlay'
-
+  test('clientA sends message to self via overlay', async () => {
     const response = await clientA.sendMessage({
       recipient: identityKeyA,
-      messageBox,
-      body
+      messageBox: selfBox,
+      body: 'hello via overlay'
     })
-
     expect(response.status).toBe('success')
   })
 
-  test('list messages via overlay', async () => {
-    const messageBox = 'overlay_self_box'
-    const messages = await clientA.listMessages({ messageBox })
+  test('clientA lists self messages via overlay', async () => {
+    const messages = await clientA.listMessages({ messageBox: selfBox })
     expect(messages.length).toBeGreaterThan(0)
     expect(messages.at(-1)?.body).toContain('hello via overlay')
   })
 
-  test('acknowledge messages via overlay', async () => {
-    const messages = await clientA.listMessages({ messageBox: 'overlay_self_box' })
-    const ids = messages.map(m => m.messageId).filter(id => typeof id === 'string')
+  test('clientA acknowledges self messages via overlay', async () => {
+    const messages = await clientA.listMessages({ messageBox: selfBox })
+    const ids = messages.map(m => m.messageId).filter(Boolean)
     expect(ids.length).toBeGreaterThan(0)
-
     const status = await clientA.acknowledgeMessage({ messageIds: ids })
     expect(status).toBe('success')
   })
 
-  test('broadcast advertisement for identity B', async () => {
-    await clientB.anointHost(MESSAGEBOX_HOST)
+  test('clientB broadcasts overlay advertisement', async () => {
+    const result = await clientB.anointHost(MESSAGEBOX_HOST)
+    expect(result).toHaveProperty('txid')
     await new Promise(resolve => setTimeout(resolve, 3000))
   })
 
-  test('send message from clientA to clientB via overlay', async () => {
-    const messageBox = 'forwarded_overlay_box'
-    const body = 'delivered to peer via overlay'
-
+  test('clientA sends message to clientB via overlay', async () => {
     const response = await clientA.sendMessage({
       recipient: identityKeyB,
-      messageBox,
-      body
+      messageBox: peerBox,
+      body: 'delivered to peer via overlay'
     })
-
     expect(response.status).toBe('success')
   })
 
-  test('clientB receives message sent via overlay', async () => {
-    const messageBox = 'forwarded_overlay_box'
-    const messages = await clientB.listMessages({ messageBox })
+  test('clientB receives overlay message from clientA', async () => {
+    const messages = await clientB.listMessages({ messageBox: peerBox })
     expect(messages.some(m => m.body.includes('delivered to peer via overlay'))).toBe(true)
   })
 })
