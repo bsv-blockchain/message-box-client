@@ -55,6 +55,7 @@ describe('Overlay Integration Tests', () => {
 
   test('clientA resolves own host via overlay', async () => {
     const resolved = await (clientA as any).resolveHostForRecipient(identityKeyA)
+    console.log('[TEST] Resolved host:', resolved)
     expect(resolved).toBe(MESSAGEBOX_HOST)
   })
 

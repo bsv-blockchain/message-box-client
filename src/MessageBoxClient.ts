@@ -2,16 +2,14 @@ import {
   WalletClient,
   AuthFetch,
   LookupResolver,
-  SHIPBroadcaster,
+  TopicBroadcaster,
   Utils,
-  Script,
   Transaction,
-  HTTPSOverlayBroadcastFacilitator,
-  MerklePath
+  PushDrop
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
-import type { Advertisement } from './types.js'
+// import type { Advertisement } from './types.js'
 
 /**
  * Defines the structure of a PeerMessage
@@ -221,10 +219,10 @@ export class MessageBoxClient {
         typeof result === 'object' &&
         'type' in result &&
         result.type === 'freeform' &&
-        'hosts' in result &&
-        Array.isArray((result as any).hosts)
+        'result' in result &&
+        Array.isArray((result as any).result?.hosts)
       ) {
-        const hosts = (result as any).hosts
+        const hosts = (result as any).result.hosts
         if (hosts.length > 0) {
           Logger.log(`[MB CLIENT] Host found via LookupResolver: ${String(hosts[0])}`)
           return hosts[0]
@@ -548,114 +546,78 @@ export class MessageBoxClient {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
-        Logger.error('[MB CLIENT ERROR] Invalid host URL:', host)
         throw new Error('Invalid host URL')
       }
 
       const identityKey = this.getIdentityKey()
-      Logger.log('[MB CLIENT] Using identity key:', identityKey)
-
       const timestamp = new Date().toISOString()
       const nonce = Math.random().toString(36).slice(2)
-      Logger.log('[MB CLIENT] Timestamp:', timestamp)
-      Logger.log('[MB CLIENT] Nonce:', nonce)
 
-      const payload = [
-        ...Utils.toArray(host, 'utf8'),
-        ...Utils.toArray(timestamp, 'utf8'),
-        ...Utils.toArray(nonce, 'utf8')
+      Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host, 'Timestamp:', timestamp, 'Nonce:', nonce)
+
+      const fields: number[][] = [
+        Utils.toArray(identityKey, 'utf8'),
+        Utils.toArray(host, 'utf8'),
+        Utils.toArray(timestamp, 'utf8'),
+        Utils.toArray(nonce, 'utf8')
       ]
 
-      Logger.log('[MB CLIENT] Payload bytes:', payload)
+      // Create the data to be signed
+      const dataToSign = [
+        ...fields[1], // host
+        ...fields[2], // timestamp
+        ...fields[3] // nonce
+      ]
 
       const { signature } = await this.walletClient.createSignature({
+        data: dataToSign,
         protocolID: [0, 'MBSERVEAD'],
-        keyID: '1',
-        counterparty: identityKey,
-        data: payload
+        keyID: '1'
       })
 
-      Logger.log('[MB CLIENT] Signature generated successfully.')
+      fields.push(signature)
 
-      const advertisement: Advertisement = {
-        identityKey,
-        host,
-        timestamp,
-        nonce,
-        signature: Utils.toHex(signature),
-        protocol: 'MBSERVEAD',
-        version: '1.0'
-      }
+      const pushdrop = new PushDrop(this.walletClient)
+      const script = await pushdrop.lock(
+        fields,
+        [0, 'MBSERVEAD'],
+        '1',
+        'self',
+        false, // Don't auto-sign
+        false // Don't push signature (we already pushed it above)
+      )
 
-      Logger.log('[MB CLIENT] Final advertisement object:', advertisement)
+      Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
 
-      const adUtf8 = Utils.toArray(JSON.stringify(advertisement), 'utf8')
-      const adHex = Utils.toHex(adUtf8)
-      Logger.log('[MB CLIENT] Encoded advertisement hex:', adHex)
-
-      const script = Script.fromASM(`OP_RETURN ${adHex}`)
-      Logger.log('[MB CLIENT] OP_RETURN script:', script.toASM(), script.toHex())
-
-      const action = await this.walletClient.createAction({
+      const { tx, txid } = await this.walletClient.createAction({
         description: 'Anoint host for overlay routing',
-        outputs: [
-          {
-            basket: 'overlay advertisements',
-            lockingScript: script.toHex(),
-            satoshis: 1,
-            outputDescription: 'Overlay advertisement output'
-          }
-        ],
-        options: { randomizeOutputs: false }
+        outputs: [{
+          basket: 'overlay advertisements',
+          lockingScript: script.toHex(),
+          satoshis: 1,
+          outputDescription: 'Overlay advertisement output'
+        }],
+        options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
       })
 
-      if (action.tx == null) {
-        Logger.error('[MB CLIENT ERROR] Action returned null tx!')
-        throw new Error('Transaction creation failed')
+      Logger.log('[MB CLIENT] Transaction created:', txid)
+
+      if (tx !== undefined) {
+        const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
+          networkPreset: 'local'
+        })
+
+        const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
+        Logger.log('[MB CLIENT] Advertisement broadcast succeeded. TXID:', result.txid)
+
+        if (typeof result.txid !== 'string') {
+          throw new Error('Anoint failed: broadcast did not return a txid')
+        }
+
+        return { txid: result.txid }
       }
 
-      Logger.log('[MB CLIENT] Action transaction created. Converting to Transaction...')
-
-      const transaction = Transaction.fromAtomicBEEF(action.tx)
-
-      Logger.log('[MB CLIENT] Transaction ID:', transaction.id('hex'))
-      Logger.log('[MB CLIENT] Transaction Hex:', transaction.toHex())
-
-      // 🟡 Manually attach a dummy MerklePath to pass SPV check
-      ;(transaction.inputs[0] as any).merklePath = new MerklePath(1, [
-        [
-          {
-            offset: 0,
-            hash: transaction.inputs[0].sourceTXID,
-            txid: true
-          }
-        ]
-      ])
-
-      Logger.log('[MB CLIENT] Merkle proof added to transaction')
-
-      const facilitator = new HTTPSOverlayBroadcastFacilitator(fetch, true)
-      facilitator.allowHTTP = true // Redundant but explicit
-
-      const broadcaster = new SHIPBroadcaster(['tm_messagebox'], {
-        networkPreset: 'local',
-        facilitator,
-        requireAcknowledgmentFromAnyHostForTopics: 'any'
-      })
-
-      Logger.log('[MB CLIENT] Broadcasting overlay advertisement...')
-
-      const result = await broadcaster.broadcast(transaction)
-
-      Logger.log('[MB CLIENT] Broadcast result:', result)
-
-      if (result.status !== 'success') {
-        Logger.error('[MB CLIENT ERROR] Advertisement broadcast failed:', result)
-        throw new Error(`Broadcast failed: ${result.description}`)
-      }
-
-      Logger.log('[MB CLIENT] Advertisement broadcast succeeded. TXID:', result.txid)
-      return { txid: result.txid }
+      throw new Error('Anoint failed: failed to create action!')
     } catch (err) {
       Logger.error('[MB CLIENT ERROR] anointHost threw:', err)
       throw err
