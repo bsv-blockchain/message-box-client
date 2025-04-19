@@ -7,7 +7,7 @@ import { webcrypto } from 'crypto'
 
 jest.setTimeout(20000)
 
-const MESSAGEBOX_HOST = 'http://localhost:5001' // MessageBoxServer running
+const MESSAGEBOX_HOST = 'http://localhost:5001'
 
 const walletA = new WalletClient('json-api', 'localhost')
 const walletB = new WalletClient('json-api', 'localhost')
@@ -100,5 +100,44 @@ describe('Overlay Integration Tests', () => {
   test('clientB receives overlay message from clientA', async () => {
     const messages = await clientB.listMessages({ messageBox: peerBox })
     expect(messages.some(m => m.body.includes('delivered to peer via overlay'))).toBe(true)
+  })
+
+  test('clientB acknowledges overlay message from clientA', async () => {
+    const messages = await clientB.listMessages({ messageBox: peerBox })
+    const ids = messages.map(m => m.messageId).filter(Boolean)
+    const result = await clientB.acknowledgeMessage({ messageIds: ids })
+    expect(result).toBe('success')
+  })
+
+  test('clientA verifies clientB host resolution', async () => {
+    const resolved = await (clientA as any).resolveHostForRecipient(identityKeyB)
+    expect(resolved).toBe(MESSAGEBOX_HOST)
+  })
+
+  test('overlay advertisement is idempotent', async () => {
+    const result1 = await clientA.anointHost(MESSAGEBOX_HOST)
+    const result2 = await clientA.anointHost(MESSAGEBOX_HOST)
+    expect(result1.txid).not.toBe(result2.txid)
+  })
+
+  test('clientA sends and acknowledges multiple messages to clientB', async () => {
+    const contents = ['msg1', 'msg2', 'msg3']
+    for (const msg of contents) {
+      const response = await clientA.sendMessage({
+        recipient: identityKeyB,
+        messageBox: peerBox,
+        body: msg
+      })
+      expect(response.status).toBe('success')
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const messages = await clientB.listMessages({ messageBox: peerBox })
+    const matched = contents.every(c => messages.some(m => m.body.includes(c)))
+    expect(matched).toBe(true)
+
+    const ids = messages.map(m => m.messageId).filter(Boolean)
+    const status = await clientB.acknowledgeMessage({ messageIds: ids })
+    expect(status).toBe('success')
   })
 })
