@@ -1,6 +1,6 @@
 /* eslint-env jest */
-import { MessageBoxClient } from '../MessageBoxClient.js'
-import { WalletClient, AuthFetch } from '@bsv/sdk'
+import { MessageBoxClient, EncryptedMessage } from '../MessageBoxClient.js'
+import { WalletClient, AuthFetch, SymmetricKey } from '@bsv/sdk'
 
 // ---  MOCK: WalletClient methods ---
 jest.spyOn(WalletClient.prototype, 'createHmac').mockResolvedValue({
@@ -57,15 +57,25 @@ describe('MessageBoxClient', () => {
 
   beforeEach(() => {
     mockWalletClient = new WalletClient()
+
+    jest.spyOn(mockWalletClient, 'createHmac').mockResolvedValue({
+      hmac: Array.from(new Uint8Array([1, 2, 3]))
+    })
+
+    jest.spyOn(mockWalletClient, 'getPublicKey').mockResolvedValue({
+      publicKey: 'mockIdentityKey'
+    })
+
+    jest.spyOn(mockWalletClient, 'encrypt').mockResolvedValue({
+      ciphertext: [9, 9, 9, 9]
+    })
+
+    jest.spyOn(mockWalletClient, 'decrypt').mockResolvedValue({
+      plaintext: [1, 2, 3, 4, 5]
+    })
+
     jest.clearAllMocks()
   })
-
-  // const VALID_SEND_RESULT = {
-  //   body: JSON.stringify({
-  //     status: 200,
-  //     message: 'Your message has been sent!'
-  //   })
-  // }
 
   const VALID_LIST_AND_READ_RESULT = {
     body: JSON.stringify({
@@ -200,7 +210,11 @@ describe('MessageBoxClient', () => {
       'sendMessage',
       expect.objectContaining({
         roomId: 'mockIdentityKey-test_inbox',
-        message: expect.objectContaining({ body: 'Test message' })
+        message: expect.objectContaining({
+          messageId: '010203',
+          recipient: 'mockIdentityKey',
+          body: expect.stringMatching(/encrypted/)
+        })
       })
     )
 
@@ -525,79 +539,62 @@ describe('MessageBoxClient', () => {
     })).rejects.toThrow('Message IDs array cannot be empty')
   })
 
-  it('determines target host using overlay when enabled', async () => {
-    const client = new MessageBoxClient({ walletClient: mockWalletClient, overlayEnabled: true })
+  it('encrypts a message correctly using encryptMessageFor', async () => {
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
-    const mockResponse: Response = {
-      json: async () => ({ ads: [{ identity_key: 'mockIdentityKey', host: 'https://overlay-host.com' }] }),
-      ok: true,
-      status: 200,
-      headers: new Headers()
-    } as unknown as Response
+    // Mock necessary walletClient methods
+    jest.spyOn(mockWalletClient, 'encrypt').mockResolvedValue({ ciphertext: [9, 9, 9, 9] })
+    jest.spyOn(mockWalletClient, 'getPublicKey').mockResolvedValue({ publicKey: 'mockSenderKey' })
 
-    jest.spyOn(global, 'fetch').mockResolvedValueOnce(mockResponse)
+    const result = await messageBoxClient.encryptMessageFor('recipientKey', 'Secret Message')
 
-    const result = await (client as any).determineTargetHost('mockIdentityKey')
-    expect(result).toBe('https://overlay-host.com')
-  })
-
-  it('falls back to default host if overlay has no match or disabled', async () => {
-    const client = new MessageBoxClient({ walletClient: mockWalletClient, overlayEnabled: false })
-    const result = await (client as any).determineTargetHost('mockIdentityKey')
-    expect(result).toBe('https://messagebox.babbage.systems')
-  })
-
-  it('calls /overlay/anoint to anoint host', async () => {
-    const client = new MessageBoxClient({ walletClient: mockWalletClient })
-
-    const mockResponse: Response = {
-      ok: true,
-      status: 200,
-      json: async () => ({ status: 'success' }),
-      headers: new Headers()
-    } as unknown as Response
-
-    const fetchSpy = jest.spyOn(client.authFetch, 'fetch').mockResolvedValue(mockResponse)
-
-    await client.anointHost('https://my-host.example.com')
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://messagebox.babbage.systems/overlay/anoint',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ host: 'https://my-host.example.com' })
-      })
-    )
-  })
-
-  it('returns null when overlay ad list is not an array', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: new WalletClient(),
-      overlayEnabled: true
+    expect(result).toMatchObject({
+      encrypted: true,
+      algorithm: 'curvepoint-aes',
+      senderPublicKey: 'mockSenderKey',
+      encryptedSymmetricKey: expect.any(Array),
+      encryptedMessage: expect.any(Array)
     })
+  })
 
-    const malformedResponse = {
-      json: async () => ({ ads: 'not-an-array' }),
-      ok: true,
-      status: 200,
-      headers: new Headers()
+  it('decrypts an encrypted message using decryptMessage', async () => {
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+
+    const encrypted: EncryptedMessage = {
+      encrypted: true,
+      algorithm: 'curvepoint-aes',
+      senderPublicKey: 'mockSenderKey',
+      encryptedSymmetricKey: [1, 2, 3],
+      encryptedMessage: [72, 101, 108, 108, 111]
     }
 
-    jest.spyOn(global, 'fetch').mockResolvedValueOnce(malformedResponse as unknown as Response)
-
-    const result = await (messageBoxClient as any).resolveHostForRecipient('someKey')
-    expect(result).toBeNull()
-  })
-
-  it('returns null when overlay ad fetch throws an error', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: new WalletClient(),
-      overlayEnabled: true
+    const decryptSpy = jest.spyOn(mockWalletClient, 'decrypt').mockResolvedValue({
+      plaintext: [1, 2, 3, 4, 5, 6, 7, 8, 9]
     })
 
-    jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network failed'))
+    const decryptSymmetricSpy = jest.spyOn(SymmetricKey.prototype, 'decrypt')
+      .mockReturnValue([72, 101, 108, 108, 111])
 
-    const result = await (messageBoxClient as any).resolveHostForRecipient('someKey')
-    expect(result).toBeNull()
+    const result = await messageBoxClient.decryptMessage(encrypted)
+
+    expect(decryptSpy).toHaveBeenCalled()
+    expect(decryptSymmetricSpy).toHaveBeenCalled()
+    expect(result).toBe('Hello')
+  })
+
+  it('throws error if decryption fails in decryptMessage', async () => {
+    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+
+    const encrypted: EncryptedMessage = {
+      encrypted: true,
+      algorithm: 'curvepoint-aes',
+      senderPublicKey: 'mockSenderKey',
+      encryptedSymmetricKey: [1, 2, 3],
+      encryptedMessage: [99, 88, 77]
+    }
+
+    jest.spyOn(mockWalletClient, 'decrypt').mockRejectedValue(new Error('Decryption failure'))
+
+    await expect(messageBoxClient.decryptMessage(encrypted)).rejects.toThrow('Decryption failure')
   })
 })

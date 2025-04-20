@@ -5,7 +5,9 @@ import {
   TopicBroadcaster,
   Utils,
   Transaction,
-  PushDrop
+  PushDrop,
+  SymmetricKey,
+  SecurityLevel
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -56,12 +58,15 @@ export interface ListMessagesParams {
 }
 
 /**
- * Defines the structure of an overlay ad
+ * Defines the structure of a message that is encrypted
  */
-// interface OverlayAd {
-//   identity_key: string
-//   host: string
-// }
+export interface EncryptedMessage {
+  encrypted: true
+  algorithm: 'curvepoint-aes'
+  senderPublicKey: string
+  encryptedSymmetricKey: number[]
+  encryptedMessage: number[]
+}
 
 /**
  * Extendable class for interacting with a MessageBoxServer
@@ -306,8 +311,27 @@ export class MessageBoxClient {
     Logger.log(`[MB CLIENT] Listening for messages in room: ${roomId}`)
 
     this.socket?.on(`sendMessage-${roomId}`, (message: PeerMessage) => {
-      Logger.log(`[MB CLIENT] Received message in room ${roomId}:`, message)
-      onMessage(message)
+      void (async () => {
+        Logger.log(`[MB CLIENT] Received message in room ${roomId}:`, message)
+
+        try {
+          const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
+
+          if (parsedBody?.encrypted === true) {
+            Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
+            const decrypted = await this.decryptMessage(parsedBody)
+            message.body = decrypted
+          } else {
+            Logger.log('[MB CLIENT] Message is not encrypted.')
+            message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
+          }
+        } catch (err) {
+          Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt live message:', err)
+          message.body = '[Error: Failed to decrypt or parse message]'
+        }
+
+        onMessage(message)
+      })()
     })
   }
 
@@ -352,6 +376,11 @@ export class MessageBoxClient {
     const roomId = `${recipient}-${messageBox}`
     Logger.log(`[MB CLIENT] Sending WebSocket message to room: ${roomId}`)
 
+    const encryptedBody = await this.encryptMessageFor(
+      recipient,
+      typeof body === 'string' ? body : JSON.stringify(body)
+    )
+
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
       let handled = false
@@ -379,7 +408,7 @@ export class MessageBoxClient {
           Logger.log('[MB CLIENT] Message sent successfully via WebSocket:', response)
           resolve(response)
         }
-      } // ✅ This closing brace was missing
+      }
 
       this.socket?.on(ackEvent, ackHandler)
 
@@ -388,7 +417,7 @@ export class MessageBoxClient {
         message: {
           messageId,
           recipient,
-          body: typeof body === 'string' ? body : JSON.stringify(body)
+          body: JSON.stringify(encryptedBody)
         }
       })
 
@@ -477,8 +506,17 @@ export class MessageBoxClient {
       throw new Error('Failed to generate message identifier.')
     }
 
+    const encryptedBody = await this.encryptMessageFor(
+      message.recipient,
+      typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
+    )
+
     const requestBody = {
-      message: { ...message, messageId, body: JSON.stringify(message.body) }
+      message: {
+        ...message,
+        messageId,
+        body: JSON.stringify(encryptedBody)
+      }
     }
 
     try {
@@ -639,7 +677,7 @@ export class MessageBoxClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: this.getIdentityKey() // <-- Fix!
+        Authorization: identityKey
       },
       body: JSON.stringify({ messageBox })
     })
@@ -648,6 +686,23 @@ export class MessageBoxClient {
 
     if (parsedResponse.status === 'error') {
       throw new Error(parsedResponse.description)
+    }
+
+    for (const message of parsedResponse.messages) {
+      try {
+        const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
+
+        if (parsedBody?.encrypted === true) {
+          Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
+          const decrypted = await this.decryptMessage(parsedBody)
+          message.body = decrypted
+        } else {
+          message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
+        }
+      } catch (err) {
+        Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt message in list:', err)
+        message.body = '[Error: Failed to decrypt or parse message]'
+      }
     }
 
     return parsedResponse.messages
@@ -670,7 +725,7 @@ export class MessageBoxClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: this.getIdentityKey() // <-- Fix!
+        Authorization: identityKey
       },
       body: JSON.stringify({ messageIds })
     })
@@ -682,5 +737,52 @@ export class MessageBoxClient {
     }
 
     return parsedAcknowledged.status
+  }
+
+  async encryptMessageFor (
+    recipient: string,
+    message: string,
+    protocolID: [SecurityLevel, string] = [0, 'messagebox'],
+    keyID: string = 'default'
+  ): Promise<EncryptedMessage> {
+    const symmetricKey = SymmetricKey.fromRandom()
+
+    const encryptedMessage = symmetricKey.encrypt(Utils.toArray(message, 'utf8')) as number[]
+
+    const { publicKey: senderPublicKey } = await this.walletClient.getPublicKey({ identityKey: true })
+
+    const encryptedKeyResult = await this.walletClient.encrypt({
+      protocolID,
+      keyID,
+      counterparty: recipient,
+      plaintext: symmetricKey.toArray()
+    })
+
+    return {
+      encrypted: true,
+      algorithm: 'curvepoint-aes',
+      senderPublicKey,
+      encryptedSymmetricKey: encryptedKeyResult.ciphertext,
+      encryptedMessage
+    }
+  }
+
+  async decryptMessage (
+    obj: EncryptedMessage,
+    protocolID: [SecurityLevel, string] = [0, 'messagebox'],
+    keyID: string = 'default'
+  ): Promise<string> {
+    const decrypted = await this.walletClient.decrypt({
+      protocolID,
+      keyID,
+      counterparty: obj.senderPublicKey,
+      ciphertext: obj.encryptedSymmetricKey
+    })
+
+    const symmetricKey = new SymmetricKey(decrypted.plaintext)
+
+    const decryptedRaw = symmetricKey.decrypt(obj.encryptedMessage) as number[]
+
+    return Utils.toUTF8(decryptedRaw)
   }
 }

@@ -79,7 +79,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
   test('should list messages from messageBox', async () => {
     const messages = await messageBoxClient.listMessages({ messageBox })
     expect(messages.length).toBeGreaterThan(0)
-    expect(messages.some(msg => msg.body === JSON.stringify(testMessage))).toBe(true)
+    expect(messages.some(msg => msg.body === testMessage)).toBe(true)
   }, 15000)
 
   /** TEST 3: List Messages from an Empty MessageBox **/
