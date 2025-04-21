@@ -215,7 +215,7 @@ export class MessageBoxClient {
   private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
     try {
       const result = await this.lookupResolver.query({
-        service: 'lsmessagebox',
+        service: 'ls_messagebox',
         query: { identityKey }
       })
 
@@ -363,7 +363,7 @@ export class MessageBoxClient {
     try {
       const hmac = await this.walletClient.createHmac({
         data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
-        protocolID: [0, 'messagebox'],
+        protocolID: [1, 'messagebox'],
         keyID: '1',
         counterparty: recipient
       })
@@ -496,7 +496,7 @@ export class MessageBoxClient {
     try {
       const hmac = await this.walletClient.createHmac({
         data: Array.from(new TextEncoder().encode(JSON.stringify(message.body))),
-        protocolID: [0, 'messagebox'],
+        protocolID: [1, 'messagebox'],
         keyID: '1',
         counterparty: message.recipient
       })
@@ -520,7 +520,7 @@ export class MessageBoxClient {
     }
 
     try {
-      const finalHost = overrideHost ?? this.host
+      const finalHost = overrideHost ?? await this.determineTargetHost(message.recipient)
 
       Logger.log('[MB CLIENT] Sending HTTP request to:', `${finalHost}/sendMessage`)
       Logger.log('[MB CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
@@ -609,7 +609,7 @@ export class MessageBoxClient {
 
       const { signature } = await this.walletClient.createSignature({
         data: dataToSign,
-        protocolID: [0, 'MBSERVEAD'],
+        protocolID: [1, 'messagebox advertisement'],
         keyID: '1'
       })
 
@@ -742,7 +742,7 @@ export class MessageBoxClient {
   async encryptMessageFor (
     recipient: string,
     message: string,
-    protocolID: [SecurityLevel, string] = [0, 'messagebox'],
+    protocolID: [SecurityLevel, string] = [1, 'messagebox'],
     keyID: string = 'default'
   ): Promise<EncryptedMessage> {
     const symmetricKey = SymmetricKey.fromRandom()
@@ -769,7 +769,7 @@ export class MessageBoxClient {
 
   async decryptMessage (
     obj: EncryptedMessage,
-    protocolID: [SecurityLevel, string] = [0, 'messagebox'],
+    protocolID: [SecurityLevel, string] = [1, 'messagebox'],
     keyID: string = 'default'
   ): Promise<string> {
     const decrypted = await this.walletClient.decrypt({
