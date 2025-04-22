@@ -752,34 +752,20 @@ export class MessageBoxClient {
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host, 'Timestamp:', timestamp, 'Nonce:', nonce)
 
       const fields: number[][] = [
-        Utils.toArray(identityKey, 'utf8'),
+        Utils.toArray(identityKey, 'hex'),
         Utils.toArray(host, 'utf8'),
         Utils.toArray(timestamp, 'utf8'),
         Utils.toArray(nonce, 'utf8')
       ]
-
-      const dataToSign = [
-        ...Utils.toArray(host, 'utf8'),
-        ...Utils.toArray(timestamp, 'utf8'),
-        ...Utils.toArray(nonce, 'utf8')
-      ]
-
-      const { signature } = await this.walletClient.createSignature({
-        data: dataToSign,
-        protocolID: [1, 'messagebox advertisement'],
-        keyID: '1'
-      })
-
-      fields.push(signature)
-
+      
       const pushdrop = new PushDrop(this.walletClient)
       const script = await pushdrop.lock(
         fields,
         [1, 'messagebox advertisement'],
         '1',
         'self',
-        false,
-        false
+        false, // anyoneCanSpend = false ✅
+        true   // forSelf = true ✅
       )
 
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())

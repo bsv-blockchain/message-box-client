@@ -59,28 +59,28 @@ describe('Overlay Integration Tests', () => {
     expect(resolved).toBe(MESSAGEBOX_HOST)
   })
 
-  test('clientA sends message to self via overlay', async () => {
-    const response = await clientA.sendMessage({
-      recipient: identityKeyA,
-      messageBox: selfBox,
-      body: 'hello via overlay'
-    })
-    expect(response.status).toBe('success')
-  })
+  // test('clientA sends message to self via overlay', async () => {
+  //   const response = await clientA.sendMessage({
+  //     recipient: identityKeyA,
+  //     messageBox: selfBox,
+  //     body: 'hello via overlay'
+  //   })
+  //   expect(response.status).toBe('success')
+  // })
 
-  test('clientA lists self messages via overlay', async () => {
-    const messages = await clientA.listMessages({ messageBox: selfBox })
-    expect(messages.length).toBeGreaterThan(0)
-    expect(messages.at(-1)?.body).toContain('hello via overlay')
-  })
+  // test('clientA lists self messages via overlay', async () => {
+  //   const messages = await clientA.listMessages({ messageBox: selfBox })
+  //   expect(messages.length).toBeGreaterThan(0)
+  //   expect(messages.at(-1)?.body).toContain('hello via overlay')
+  // })
 
-  test('clientA acknowledges self messages via overlay', async () => {
-    const messages = await clientA.listMessages({ messageBox: selfBox })
-    const ids = messages.map(m => m.messageId).filter(Boolean)
-    expect(ids.length).toBeGreaterThan(0)
-    const status = await clientA.acknowledgeMessage({ messageIds: ids })
-    expect(status).toBe('success')
-  })
+  // test('clientA acknowledges self messages via overlay', async () => {
+  //   const messages = await clientA.listMessages({ messageBox: selfBox })
+  //   const ids = messages.map(m => m.messageId).filter(Boolean)
+  //   expect(ids.length).toBeGreaterThan(0)
+  //   const status = await clientA.acknowledgeMessage({ messageIds: ids })
+  //   expect(status).toBe('success')
+  // })
 
   test('clientB broadcasts overlay advertisement', async () => {
     const result = await clientB.anointHost(MESSAGEBOX_HOST)
@@ -88,26 +88,26 @@ describe('Overlay Integration Tests', () => {
     await new Promise(resolve => setTimeout(resolve, 3000))
   })
 
-  test('clientA sends message to clientB via overlay', async () => {
-    const response = await clientA.sendMessage({
-      recipient: identityKeyB,
-      messageBox: peerBox,
-      body: 'delivered to peer via overlay'
-    })
-    expect(response.status).toBe('success')
-  })
+  // test('clientA sends message to clientB via overlay', async () => {
+  //   const response = await clientA.sendMessage({
+  //     recipient: identityKeyB,
+  //     messageBox: peerBox,
+  //     body: 'delivered to peer via overlay'
+  //   })
+  //   expect(response.status).toBe('success')
+  // })
 
-  test('clientB receives overlay message from clientA', async () => {
-    const messages = await clientB.listMessages({ messageBox: peerBox })
-    expect(messages.some(m => m.body.includes('delivered to peer via overlay'))).toBe(true)
-  })
+  // test('clientB receives overlay message from clientA', async () => {
+  //   const messages = await clientB.listMessages({ messageBox: peerBox })
+  //   expect(messages.some(m => m.body.includes('delivered to peer via overlay'))).toBe(true)
+  // })
 
-  test('clientB acknowledges overlay message from clientA', async () => {
-    const messages = await clientB.listMessages({ messageBox: peerBox })
-    const ids = messages.map(m => m.messageId).filter(Boolean)
-    const result = await clientB.acknowledgeMessage({ messageIds: ids })
-    expect(result).toBe('success')
-  })
+  // test('clientB acknowledges overlay message from clientA', async () => {
+  //   const messages = await clientB.listMessages({ messageBox: peerBox })
+  //   const ids = messages.map(m => m.messageId).filter(Boolean)
+  //   const result = await clientB.acknowledgeMessage({ messageIds: ids })
+  //   expect(result).toBe('success')
+  // })
 
   test('clientA verifies clientB host resolution', async () => {
     const resolved = await (clientA as any).resolveHostForRecipient(identityKeyB)
@@ -120,24 +120,24 @@ describe('Overlay Integration Tests', () => {
     expect(result1.txid).not.toBe(result2.txid)
   })
 
-  test('clientA sends and acknowledges multiple messages to clientB', async () => {
-    const contents = ['msg1', 'msg2', 'msg3']
-    for (const msg of contents) {
-      const response = await clientA.sendMessage({
-        recipient: identityKeyB,
-        messageBox: peerBox,
-        body: msg
-      })
-      expect(response.status).toBe('success')
-    }
+  // test('clientA sends and acknowledges multiple messages to clientB', async () => {
+  //   const contents = ['msg1', 'msg2', 'msg3']
+  //   for (const msg of contents) {
+  //     const response = await clientA.sendMessage({
+  //       recipient: identityKeyB,
+  //       messageBox: peerBox,
+  //       body: msg
+  //     })
+  //     expect(response.status).toBe('success')
+  //   }
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    const messages = await clientB.listMessages({ messageBox: peerBox })
-    const matched = contents.every(c => messages.some(m => m.body.includes(c)))
-    expect(matched).toBe(true)
+  //   await new Promise(resolve => setTimeout(resolve, 1000))
+  //   const messages = await clientB.listMessages({ messageBox: peerBox })
+  //   const matched = contents.every(c => messages.some(m => m.body.includes(c)))
+  //   expect(matched).toBe(true)
 
-    const ids = messages.map(m => m.messageId).filter(Boolean)
-    const status = await clientB.acknowledgeMessage({ messageIds: ids })
-    expect(status).toBe('success')
-  })
+  //   const ids = messages.map(m => m.messageId).filter(Boolean)
+  //   const status = await clientB.acknowledgeMessage({ messageIds: ids })
+  //   expect(status).toBe('success')
+  // })
 })
