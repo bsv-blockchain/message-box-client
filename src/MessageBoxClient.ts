@@ -1,3 +1,31 @@
+/**
+ * @file MessageBoxClient.ts
+ * @description
+ * This module provides the `MessageBoxClient` class, a client-side library for interacting with the Message Box Server.
+ * It supports sending and receiving encrypted messages between authenticated users over HTTP or WebSocket,
+ * using identity keys to ensure privacy, authenticity, and message integrity.
+ *
+ * MessageBoxClient supports both local and overlay-based routing. Overlay routing allows messages to be forwarded
+ * to dynamically anointed hosts by resolving the most recently published advertisement for a given identity key.
+ * This is achieved using the BSV SDK’s LookupResolver and TopicBroadcaster via overlay advertisements.
+ *
+ * Key Features:
+ * - Authenticated HTTP and WebSocket message sending and receipt
+ * - Deterministic message ID generation via HMAC
+ * - Optional message encryption using CurvePoint-AES with symmetric keys
+ * - Identity-based overlay host resolution using `ls_messagebox`
+ * - Host advertisement broadcasting using PushDrop and overlay topics
+ * - Live message streaming with room-based WebSocket channels
+ * - Secure message acknowledgment and persistent inboxes via `messageBox` types
+ *
+ * This class is used by frontend or service-layer clients who want to send or receive messages via the Message Box Server.
+ * For details on message structure, encryption, and overlay mechanics, refer to the associated documentation.
+ *
+ * @module MessageBoxClient
+ * @author Project Babbage
+ * @license Open BSV License
+ */
+
 import {
   WalletClient,
   AuthFetch,
@@ -11,7 +39,6 @@ import {
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
-// import type { Advertisement } from './types.js'
 
 /**
  * Defines the structure of a PeerMessage
@@ -69,7 +96,18 @@ export interface EncryptedMessage {
 }
 
 /**
- * Extendable class for interacting with a MessageBoxServer
+ * @class MessageBoxClient
+ * @description
+ * Client for interacting with a MessageBoxServer or overlay network. Enables:
+ * - Secure and encrypted messaging via HTTP or WebSocket
+ * - HMAC-based message IDs for tamper resistance
+ * - Dynamic overlay resolution of recipient hosts via LookupResolver
+ * - Host advertisement broadcasting using PushDrop outputs
+ * - Streaming real-time message support via WebSocket rooms
+ *
+ * @example
+ * const mb = new MessageBoxClient({ walletClient, overlayEnabled: true })
+ * await mb.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello world' })
  */
 export class MessageBoxClient {
   private readonly host: string
@@ -81,6 +119,14 @@ export class MessageBoxClient {
   private readonly joinedRooms: Set<string> = new Set()
   private readonly lookupResolver: LookupResolver
 
+  /**
+   * @constructor
+   * @param options.host - Base URL of the MessageBox server
+   * @param options.walletClient - WalletClient instance for identity and crypto operations
+   * @param options.enableLogging - If true, enables structured logging
+   * @param options.overlayEnabled - Enables overlay resolution and fallback
+   * @param options.networkPreset - LookupResolver overlay network ('local', 'mainnet', or 'testnet')
+   */
   constructor ({
     host = 'https://messagebox.babbage.systems',
     walletClient,
@@ -109,12 +155,22 @@ export class MessageBoxClient {
   }
 
   /**
-  * Getter for joinedRooms to use in tests
-  */
+   * @method getJoinedRooms
+   * @returns {Set<string>}
+   * @description Returns the current set of WebSocket room IDs that the client has joined.
+   * This is primarily used for inspection and testing purposes.
+   */
   public getJoinedRooms (): Set<string> {
     return this.joinedRooms
   }
 
+  /**
+   * @method getIdentityKey
+   * @returns {string}
+   * @throws {Error} If the identity key has not been fetched or set yet.
+   * @description Returns the current identity key used by the client. This is fetched during setup
+   * and used for both authentication and encryption operations.
+   */
   public getIdentityKey (): string {
     if (this.myIdentityKey == null) {
       throw new Error('[MB CLIENT ERROR] Identity key is not set')
@@ -122,16 +178,33 @@ export class MessageBoxClient {
     return this.myIdentityKey
   }
 
-  // Add a getter for testing purposes
+  /**
+   * @property testSocket
+   * @readonly
+   * @returns {AuthSocketClient | undefined}
+   * @description Exposes the internal WebSocket client for testing or inspection.
+   */
   public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
   /**
-  * Establish an initial WebSocket connection (optional)
-  */
+   * @method initializeConnection
+   * @async
+   * @returns {Promise<void>}
+   * @description Establishes an authenticated WebSocket connection to the MessageBox server.
+   * This connection allows the client to send and receive real-time messages in WebSocket rooms.
+   *
+   * Steps:
+   * 1. Fetches the user's identity key if not already loaded.
+   * 2. Creates a new WebSocket connection using AuthSocketClient.
+   * 3. Sends authentication data (identityKey).
+   * 4. Waits for `authenticationSuccess` or fails after a timeout.
+   *
+   * Authentication ensures only valid users join rooms and send messages.
+   */
   async initializeConnection (): Promise<void> {
-    Logger.log('[MB CLIENT] initializeConnection() STARTED') // 🔹 Confirm function is called
+    Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
       Logger.log('[MB CLIENT] Fetching identity key...')
@@ -210,7 +283,15 @@ export class MessageBoxClient {
   }
 
   /**
-   * Looks up the most recently anointed host for a recipient using the overlay via LookupResolver.
+   * @method resolveHostForRecipient
+   * @private
+   * @async
+   * @param {string} identityKey - The public identity key of the message recipient.
+   * @returns {Promise<string | null>} - The most recently anointed host for this identity, or `null` if not found.
+   *
+   * @description
+   * Uses the overlay LookupResolver to find the most recently anointed MessageBox host for a given recipient.
+   * This enables clients to determine where to route overlay-based messages.
    */
   private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
     try {
@@ -245,7 +326,15 @@ export class MessageBoxClient {
   }
 
   /**
-   * Determines the appropriate host for the recipient (local or overlay).
+   * @method determineTargetHost
+   * @private
+   * @async
+   * @param {string} recipient - The recipient’s identity key.
+   * @returns {Promise<string>} - The host to use for routing the message (overlay if available, else default).
+   *
+   * @description
+   * Selects the appropriate server to send messages to. If overlay functionality is enabled,
+   * this attempts to resolve a recipient’s anointed host. Falls back to the default host if none is found.
    */
   private async determineTargetHost (recipient: string): Promise<string> {
     if (!this.overlayEnabled) {
@@ -257,7 +346,15 @@ export class MessageBoxClient {
   }
 
   /**
-   * Join a WebSocket room before sending messages
+   * @method joinRoom
+   * @async
+   * @param {string} messageBox - The name of the WebSocket room to join.
+   * @returns {Promise<void>}
+   *
+   * @description
+   * Ensures the client joins a WebSocket room for receiving live messages.
+   * This function will initialize a WebSocket connection if needed and send an `authenticated` event
+   * followed by a `joinRoom` event. It ensures no duplicate joins for already joined rooms.
    */
   async joinRoom (messageBox: string): Promise<void> {
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
@@ -289,6 +386,20 @@ export class MessageBoxClient {
     }
   }
 
+  /**
+   * @method listenForLiveMessages
+   * @async
+   * @param {Object} params - Configuration for the live message listener.
+   * @param {function} params.onMessage - A callback function that will be called when a new message is received.
+   * @param {string} params.messageBox - The name of the message box to listen on (usually tied to a protocol or purpose).
+   * @returns {Promise<void>}
+   *
+   * @description
+   * Listens for live WebSocket messages from the specified message box. This function:
+   * - Ensures the socket is connected and authenticated
+   * - Joins the appropriate WebSocket room
+   * - Decrypts incoming encrypted messages before invoking the callback
+   */
   async listenForLiveMessages ({
     onMessage,
     messageBox
@@ -336,8 +447,16 @@ export class MessageBoxClient {
   }
 
   /**
- * Sends a message over WebSocket if connected; falls back to HTTP otherwise.
- */
+   * @method sendLiveMessage
+   * @async
+   * @param {SendMessageParams} param0 - The message parameters including recipient, box, and body.
+   * @returns {Promise<SendMessageResponse>}
+   *
+   * @description
+   * Attempts to send a message in real time using WebSockets. If the socket is unavailable or fails,
+   * the method falls back to sending via HTTP. Message bodies are encrypted, and an HMAC is used
+   * to generate a unique message ID.
+   */
   async sendLiveMessage ({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
@@ -349,16 +468,16 @@ export class MessageBoxClient {
       throw new Error('[MB CLIENT ERROR] Message body cannot be empty')
     }
 
-    // Ensure WebSocket connection and room join before sending
+    // Ensure room is joined before sending
     await this.joinRoom(messageBox)
 
+    // Fallback to HTTP if WebSocket is not connected
     if (this.socket == null || !this.socket.connected) {
       Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
       const targetHost = await this.determineTargetHost(recipient)
       return await this.sendMessage({ recipient, messageBox, body }, targetHost)
     }
 
-    // Generate message ID
     let messageId: string
     try {
       const hmac = await this.walletClient.createHmac({
@@ -376,6 +495,7 @@ export class MessageBoxClient {
     const roomId = `${recipient}-${messageBox}`
     Logger.log(`[MB CLIENT] Sending WebSocket message to room: ${roomId}`)
 
+    // Encrypt the message body
     const encryptedBody = await this.encryptMessageFor(
       recipient,
       typeof body === 'string' ? body : JSON.stringify(body)
@@ -410,8 +530,10 @@ export class MessageBoxClient {
         }
       }
 
+      // Attach acknowledgment listener
       this.socket?.on(ackEvent, ackHandler)
 
+      // Emit message to room
       this.socket?.emit('sendMessage', {
         roomId,
         message: {
@@ -421,6 +543,7 @@ export class MessageBoxClient {
         }
       })
 
+      // Timeout: Fallback to HTTP if no acknowledgment received
       setTimeout(() => {
         if (!handled) {
           handled = true
@@ -441,7 +564,14 @@ export class MessageBoxClient {
   }
 
   /**
-   * Leaves a WebSocket room.
+   * @method leaveRoom
+   * @async
+   * @param {string} messageBox - The name of the message box (WebSocket room) to leave.
+   * @returns {Promise<void>}
+   *
+   * @description
+   * Leaves a previously joined WebSocket room. This is useful for reducing unnecessary
+   * WebSocket traffic or managing room membership dynamically.
    */
   async leaveRoom (messageBox: string): Promise<void> {
     if (this.socket == null) {
@@ -462,7 +592,13 @@ export class MessageBoxClient {
   }
 
   /**
-   * Closes WebSocket connection.
+   * @method disconnectWebSocket
+   * @async
+   * @returns {Promise<void>}
+   *
+   * @description
+   * Gracefully closes the WebSocket connection if it's active.
+   * Useful for client shutdown, logout, or transitioning between identities.
    */
   async disconnectWebSocket (): Promise<void> {
     if (this.socket != null) {
@@ -475,7 +611,16 @@ export class MessageBoxClient {
   }
 
   /**
-   * Sends a message via HTTP
+   * @method sendMessage
+   * @async
+   * @param {SendMessageParams} message - The recipient, messageBox, body, and optional messageId.
+   * @param {string} [overrideHost] - Optionally override the resolved or default server host.
+   * @returns {Promise<SendMessageResponse>}
+   *
+   * @description
+   * Sends a message over HTTP. Automatically encrypts the message body for the recipient
+   * and generates a unique messageId using an HMAC. Uses overlay lookup to resolve the correct
+   * host if `overlayEnabled` is true. Falls back to default host if no overlay is found.
    */
   async sendMessage (
     message: SendMessageParams,
@@ -491,7 +636,6 @@ export class MessageBoxClient {
       throw new Error('Every message must have a body!')
     }
 
-    // Generate HMAC
     let messageId: string
     try {
       const hmac = await this.walletClient.createHmac({
@@ -578,7 +722,21 @@ export class MessageBoxClient {
   }
 
   /**
-   * Allows a user to explicitly anoint a host to receive their messages.
+   * @method anointHost
+   * @async
+   * @param {string} host - The full URL of the host you wish to anoint for receiving your messages.
+   * @returns {Promise<{ txid: string }>} - The transaction ID of the successfully broadcasted advertisement.
+   *
+   * @description
+   * Creates and broadcasts an overlay advertisement transaction that announces the provided host as
+   * authorized to receive messages for the user's identity key. This is done by creating a signed
+   * PushDrop output with host, timestamp, and nonce metadata, and then broadcasting the resulting transaction
+   * to the overlay network under the `tm_messagebox` topic.
+   *
+   * The server receiving messages for the identity key must validate this advertisement to admit messages.
+   * This method ensures decentralized routing is possible based on user-specified preferences.
+   *
+   * @throws {Error} If the host URL is invalid or if broadcasting fails.
    */
   async anointHost (host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
@@ -600,11 +758,10 @@ export class MessageBoxClient {
         Utils.toArray(nonce, 'utf8')
       ]
 
-      // Create the data to be signed
       const dataToSign = [
-        ...fields[1], // host
-        ...fields[2], // timestamp
-        ...fields[3] // nonce
+        ...Utils.toArray(host, 'utf8'),
+        ...Utils.toArray(timestamp, 'utf8'),
+        ...Utils.toArray(nonce, 'utf8')
       ]
 
       const { signature } = await this.walletClient.createSignature({
@@ -618,11 +775,11 @@ export class MessageBoxClient {
       const pushdrop = new PushDrop(this.walletClient)
       const script = await pushdrop.lock(
         fields,
-        [0, 'MBSERVEAD'],
+        [1, 'messagebox advertisement'],
         '1',
         'self',
-        false, // Don't auto-sign
-        false // Don't push signature (we already pushed it above)
+        false,
+        false
       )
 
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
@@ -663,8 +820,20 @@ export class MessageBoxClient {
   }
 
   /**
- * Lists messages from MessageBoxServer or an overlay host
- */
+   * @method listMessages
+   * @async
+   * @param {ListMessagesParams} params - The message box name to retrieve messages from.
+   * @returns {Promise<PeerMessage[]>} - A list of parsed and optionally decrypted messages.
+   *
+   * @description
+   * Queries the MessageBox server (or overlay-resolved host if enabled) for all messages
+   * in a specific messageBox. If any messages are encrypted with CurvePoint AES, they are decrypted
+   * using the sender’s public key and the local user's wallet.
+   *
+   * If the overlay is enabled, the most recently anointed host will be used as the target instead of the default.
+   *
+   * @throws {Error} If the messageBox is empty, or if the server response indicates failure.
+   */
   async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
@@ -709,8 +878,20 @@ export class MessageBoxClient {
   }
 
   /**
- * Acknowledges one or more messages as having been received
- */
+   * @method acknowledgeMessage
+   * @async
+   * @param {AcknowledgeMessageParams} params - An object containing an array of message IDs to acknowledge.
+   * @returns {Promise<string>} - Returns the success status string from the server response.
+   *
+   * @description
+   * Acknowledges one or more messages previously received from the MessageBoxServer or an overlay-resolved host.
+   * Acknowledged messages can then be deleted from the server-side storage.
+   *
+   * This method authenticates using the local identity key and notifies the message server
+   * that the specified messages were successfully received and processed.
+   *
+   * @throws {Error} If the messageIds array is empty, or the request fails.
+   */
   async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
@@ -739,6 +920,21 @@ export class MessageBoxClient {
     return parsedAcknowledged.status
   }
 
+  /**
+   * @method encryptMessageFor
+   * @async
+   * @param {string} recipient - The public key of the recipient to encrypt the message for.
+   * @param {string} message - The raw message string to be encrypted.
+   * @param {[SecurityLevel, string]} protocolID - The protocol ID tuple used for deriving the encryption key.
+   * @param {string} keyID - The key ID used for encrypting the symmetric key (default: 'default').
+   * @returns {Promise<EncryptedMessage>} - Returns an object containing all fields required for secure decryption.
+   *
+   * @description
+   * Encrypts a plaintext message using AES (symmetric encryption), then encrypts the symmetric key using
+   * CurvePoint asymmetric encryption via the BSV SDK. The result can be sent securely to the recipient.
+   *
+   * The `protocolID` and `keyID` ensure the correct key pair is used and allow key separation for different applications.
+   */
   async encryptMessageFor (
     recipient: string,
     message: string,
@@ -767,6 +963,22 @@ export class MessageBoxClient {
     }
   }
 
+  /**
+   * @method decryptMessage
+   * @async
+   * @param {EncryptedMessage} obj - The encrypted message object containing the ciphertext and encrypted symmetric key.
+   * @param {[SecurityLevel, string]} protocolID - The protocol ID tuple used for key derivation and decryption.
+   * @param {string} keyID - The key ID used to decrypt the symmetric key (default: 'default').
+   * @returns {Promise<string>} - The original plaintext message string after decryption.
+   *
+   * @description
+   * Decrypts a previously encrypted message that was sent using `encryptMessageFor`.
+   * This involves two steps:
+   * 1. Decrypt the symmetric key using CurvePoint asymmetric decryption with the identity wallet.
+   * 2. Decrypt the message using the decrypted symmetric key.
+   *
+   * Used internally by the client when parsing live messages or polling lists.
+   */
   async decryptMessage (
     obj: EncryptedMessage,
     protocolID: [SecurityLevel, string] = [1, 'messagebox'],
