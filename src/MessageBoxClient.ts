@@ -308,7 +308,7 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
+  private async resolveHostForRecipient (identityKey: string): Promise<string> {
     try {
       const result = await this.lookupResolver.query({
         service: 'ls_messagebox',
@@ -745,13 +745,12 @@ export class MessageBoxClient {
 
     let finalBody: string | EncryptedMessage
     if (message.skipEncryption === true) {
-      const raw = typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
-      finalBody = JSON.stringify(raw)
+      finalBody = typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
     } else {
       const encryptedMessage = await this.walletClient.encrypt({
         protocolID: [1, 'messagebox'],
         keyID: '1',
-        counterparty: message.recipient === this.getIdentityKey() ? 'self' : message.recipient,
+        counterparty: message.recipient,
         plaintext: Utils.toArray(typeof message.body === 'string' ? message.body : JSON.stringify(message.body), 'utf8')
       })
 
@@ -769,7 +768,7 @@ export class MessageBoxClient {
     }
 
     try {
-      const finalHost = overrideHost ?? await this.resolveHostForRecipient(message.recipient) ?? this.host
+      const finalHost = overrideHost ?? await this.resolveHostForRecipient(message.recipient)
 
       Logger.log('[MB CLIENT] Sending HTTP request to:', `${finalHost}/sendMessage`)
       Logger.log('[MB CLIENT] Request Body:', JSON.stringify(requestBody, null, 2))
