@@ -1,3 +1,15 @@
+/**
+ * PeerPayClient
+ *
+ * Extends `MessageBoxClient` to enable Bitcoin payments using the MetaNet identity system.
+ *
+ * This client handles payment token creation, message transmission over HTTP/WebSocket,
+ * payment reception (including acceptance and rejection logic), and listing of pending payments.
+ *
+ * It uses authenticated and encrypted message transmission to ensure secure payment flows
+ * between identified peers on the BSV network.
+ */
+
 import { MessageBoxClient, PeerMessage } from './MessageBoxClient.js'
 import { WalletClient, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
 import { Logger } from './Utils/logger.js'

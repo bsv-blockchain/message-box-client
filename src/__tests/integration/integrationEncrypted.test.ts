@@ -20,7 +20,7 @@ let identityKey: string
 
 describe('Encryption Integration Tests', () => {
   const messageBox = 'encrypted_test_box'
-  const plaintext = '🔐 This is a secure test message.'
+  const plaintext = 'This is a secure test message.'
 
   beforeAll(async () => {
     const result = await walletClient.getPublicKey({ identityKey: true })

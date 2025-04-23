@@ -42,7 +42,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
       recipientKey = publicKeyResponse.publicKey.trim()
       console.log('[DEBUG] Successfully assigned recipientKey:', recipientKey)
 
-      // 🔹 Ensure identity key is set internally in MessageBoxClient
+      // Ensure identity key is set internally in MessageBoxClient
       await messageBoxClient.initializeConnection()
     } catch (error) {
       console.error('[ERROR] Failed to set up test:', error)
@@ -54,11 +54,6 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     try {
       if (testMessageId !== undefined && testMessageId !== '') {
         console.log('[DEBUG] Cleaning up test messages...')
-
-        // const ackResponse = await messageBoxClient.acknowledgeMessage({ messageIds: [testMessageId] })
-        // console.log('[DEBUG] Acknowledge Response:', ackResponse)
-
-        // expect(ackResponse).toBe('success')
       }
     } catch (error) {
       console.error('[ERROR] Failed to acknowledge test message:', error)
@@ -149,7 +144,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
       recipient: recipientKey,
       messageBox,
       body: plaintextMessage,
-      skipEncryption: true // 🔹 bypass encryption
+      skipEncryption: true // Bypass encryption
     })
 
     expect(response).toHaveProperty('status', 'success')

@@ -1,5 +1,5 @@
 // jest.config.ts
-import type { JestConfigWithTsJest } from 'ts-jest';
+import type { JestConfigWithTsJest } from 'ts-jest'
 
 const config: JestConfigWithTsJest = {
   // Use the preset specifically designed for ESM
@@ -14,8 +14,8 @@ const config: JestConfigWithTsJest = {
   // These globals configure ts-jest to output ESM
   globals: {
     'ts-jest': {
-      useESM: true,
-    },
+      useESM: true
+    }
   },
 
   // Tell Jest that files ending in .ts should be treated as ESM modules
@@ -24,8 +24,8 @@ const config: JestConfigWithTsJest = {
   // Optionally, if you have imports with a .js extension in your source (or tests)
   // but your source files are actually TypeScript, this mapper will remove the extension.
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1',
-  },
-};
+    '^(\\.{1,2}/.*)\\.js$': '$1'
+  }
+}
 
-export default config;
+export default config
