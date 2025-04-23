@@ -655,7 +655,7 @@ export class MessageBoxClient {
     })
 
     const encryptedMessageBody: EncryptedMessage = {
-      encryptedMessage: Utils.toUTF8(encryptedMessage.ciphertext)
+      encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext)
     }
 
     const requestBody = {
