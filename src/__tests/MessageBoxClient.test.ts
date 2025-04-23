@@ -81,8 +81,8 @@ describe('MessageBoxClient', () => {
     body: JSON.stringify({
       status: 200,
       messages: [
-        { sender: 'mockSender', messageBoxId: 42, body: '{}' },
-        { sender: 'mockSender', messageBoxId: 43, body: '{}' }
+        { sender: 'mockSender', messageBoxId: 42, body: {} },
+        { sender: 'mockSender', messageBoxId: 43, body: {} }
       ]
     })
   }
@@ -227,7 +227,7 @@ describe('MessageBoxClient', () => {
 
   it('Sends a message', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => ({
         status: 'success',
@@ -249,7 +249,7 @@ describe('MessageBoxClient', () => {
 
   it('Lists available messages', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_LIST_AND_READ_RESULT.body),
@@ -265,7 +265,7 @@ describe('MessageBoxClient', () => {
 
   it('Acknowledges a message', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_ACK_RESULT.body),
@@ -282,7 +282,7 @@ describe('MessageBoxClient', () => {
   it('Throws an error when sendMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
 
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -302,7 +302,7 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when listMessages() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -316,7 +316,7 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when acknowledgeMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
+      ; (messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
