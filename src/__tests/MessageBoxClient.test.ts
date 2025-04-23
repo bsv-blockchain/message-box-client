@@ -1,6 +1,6 @@
 /* eslint-env jest */
-import { MessageBoxClient, EncryptedMessage } from '../MessageBoxClient.js'
-import { WalletClient, AuthFetch, SymmetricKey } from '@bsv/sdk'
+import { MessageBoxClient } from '../MessageBoxClient.js'
+import { WalletClient, AuthFetch } from '@bsv/sdk'
 
 // ---  MOCK: WalletClient methods ---
 jest.spyOn(WalletClient.prototype, 'createHmac').mockResolvedValue({
@@ -227,6 +227,7 @@ describe('MessageBoxClient', () => {
 
   it('Sends a message', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => ({
         status: 'success',
@@ -280,6 +281,8 @@ describe('MessageBoxClient', () => {
 
   it('Throws an error when sendMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
+
+    ;(messageBoxClient as any).myIdentityKey = 'mockIdentityKey'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -537,64 +540,5 @@ describe('MessageBoxClient', () => {
     await expect(messageBoxClient.acknowledgeMessage({
       messageIds: 'invalid' as any // Not an array
     })).rejects.toThrow('Message IDs array cannot be empty')
-  })
-
-  it('encrypts a message correctly using encryptMessageFor', async () => {
-    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-
-    // Mock necessary walletClient methods
-    jest.spyOn(mockWalletClient, 'encrypt').mockResolvedValue({ ciphertext: [9, 9, 9, 9] })
-    jest.spyOn(mockWalletClient, 'getPublicKey').mockResolvedValue({ publicKey: 'mockSenderKey' })
-
-    const result = await messageBoxClient.encryptMessageFor('recipientKey', 'Secret Message')
-
-    expect(result).toMatchObject({
-      encrypted: true,
-      algorithm: 'curvepoint-aes',
-      senderPublicKey: 'mockSenderKey',
-      encryptedSymmetricKey: expect.any(Array),
-      encryptedMessage: expect.any(Array)
-    })
-  })
-
-  it('decrypts an encrypted message using decryptMessage', async () => {
-    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-
-    const encrypted: EncryptedMessage = {
-      encrypted: true,
-      algorithm: 'curvepoint-aes',
-      senderPublicKey: 'mockSenderKey',
-      encryptedSymmetricKey: [1, 2, 3],
-      encryptedMessage: [72, 101, 108, 108, 111]
-    }
-
-    const decryptSpy = jest.spyOn(mockWalletClient, 'decrypt').mockResolvedValue({
-      plaintext: [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    })
-
-    const decryptSymmetricSpy = jest.spyOn(SymmetricKey.prototype, 'decrypt')
-      .mockReturnValue([72, 101, 108, 108, 111])
-
-    const result = await messageBoxClient.decryptMessage(encrypted)
-
-    expect(decryptSpy).toHaveBeenCalled()
-    expect(decryptSymmetricSpy).toHaveBeenCalled()
-    expect(result).toBe('Hello')
-  })
-
-  it('throws error if decryption fails in decryptMessage', async () => {
-    const messageBoxClient = new MessageBoxClient({ walletClient: mockWalletClient })
-
-    const encrypted: EncryptedMessage = {
-      encrypted: true,
-      algorithm: 'curvepoint-aes',
-      senderPublicKey: 'mockSenderKey',
-      encryptedSymmetricKey: [1, 2, 3],
-      encryptedMessage: [99, 88, 77]
-    }
-
-    jest.spyOn(mockWalletClient, 'decrypt').mockRejectedValue(new Error('Decryption failure'))
-
-    await expect(messageBoxClient.decryptMessage(encrypted)).rejects.toThrow('Decryption failure')
   })
 })

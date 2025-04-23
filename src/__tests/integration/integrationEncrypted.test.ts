@@ -6,6 +6,8 @@ import { expect, test, describe, beforeAll } from '@jest/globals'
 
 (global as any).self = { crypto: webcrypto }
 
+jest.setTimeout(20000)
+
 const walletClient = new WalletClient('json-api', 'http://localhost:5001')
 const messageBoxClient = new MessageBoxClient({
   host: 'http://localhost:5001',
@@ -23,6 +25,8 @@ describe('Encryption Integration Tests', () => {
   beforeAll(async () => {
     const result = await walletClient.getPublicKey({ identityKey: true })
     identityKey = result.publicKey
+
+    await messageBoxClient.initializeConnection()
   })
 
   test('encrypts and decrypts a message to self successfully', async () => {

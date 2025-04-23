@@ -4,6 +4,8 @@ import { webcrypto } from 'crypto'
 
 (global as any).self = { crypto: webcrypto }
 
+jest.setTimeout(20000)
+
 const WS_URL = 'https://messagebox.babbage.systems'
 
 let recipientKey: string
@@ -117,4 +119,50 @@ describe('MessageBoxClient WebSocket Integration Tests', () => {
     // Ensure the room is removed from joinedRooms
     expect(messageBoxClient.getJoinedRooms().has(`${messageBoxClient.getIdentityKey()}-${messageBox}`)).toBe(false)
   })
+
+  /** TEST 5: Send and Receive a Message via WebSocket without Encryption **/
+  test(
+    'should send and receive a message via WebSocket without encryption',
+    async () => {
+      const unencryptedMessage = 'Plaintext WebSocket message'
+
+      const messagePromise: Promise<PeerMessage> = new Promise((resolve, reject) => {
+        messageBoxClient
+          .listenForLiveMessages({
+            messageBox,
+            onMessage: (message: PeerMessage) => {
+              try {
+                console.log('[TEST] Received unencrypted message:', message)
+                resolve(message)
+              } catch (error) {
+                console.error('[ERROR] Error processing message:', error)
+                reject(error)
+              }
+            }
+          })
+          .catch(reject)
+
+        setTimeout(() => {
+          reject(new Error('Test timed out: No unencrypted message received'))
+        }, 10000)
+      })
+
+      await messageBoxClient.joinRoom(messageBox)
+
+      const response = await messageBoxClient.sendLiveMessage({
+        recipient: recipientKey,
+        messageBox,
+        body: unencryptedMessage,
+        skipEncryption: true
+      })
+
+      expect(response).toHaveProperty('status', 'success')
+
+      const received = await messagePromise
+      expect(received).not.toBeNull()
+      expect(received.body).toBe(unencryptedMessage)
+      expect(received.sender).toBe(recipientKey)
+    },
+    15000
+  )
 })

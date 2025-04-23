@@ -8,6 +8,8 @@ jest.unmock('@bsv/sdk');
 
 (global as any).self = { crypto: webcrypto }
 
+jest.setTimeout(20000)
+
 // Explicitly initialize WalletClient with Meta Net Client (MNC)
 const walletClient = new WalletClient('json-api', 'localhost')
 
@@ -27,20 +29,24 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
   beforeAll(async () => {
     try {
       console.log('[DEBUG] Retrieving public key...')
-
-      // Retrieve recipient's public key
       const publicKeyResponse = await walletClient.getPublicKey({ identityKey: true })
-      console.log('[DEBUG] Public Key Response:', publicKeyResponse)
 
-      if (publicKeyResponse?.publicKey == null || publicKeyResponse?.publicKey === undefined || typeof publicKeyResponse.publicKey !== 'string' || publicKeyResponse.publicKey === '' || publicKeyResponse.publicKey.trim() === '') {
+      if (
+        publicKeyResponse?.publicKey == null ||
+        typeof publicKeyResponse.publicKey !== 'string' ||
+        publicKeyResponse.publicKey.trim() === ''
+      ) {
         throw new Error('[ERROR] getPublicKey returned an invalid key!')
       }
 
       recipientKey = publicKeyResponse.publicKey.trim()
       console.log('[DEBUG] Successfully assigned recipientKey:', recipientKey)
+
+      // 🔹 Ensure identity key is set internally in MessageBoxClient
+      await messageBoxClient.initializeConnection()
     } catch (error) {
-      console.error('[ERROR] Failed to retrieve public key:', error)
-      throw error // Ensure test fails if retrieval is unsuccessful
+      console.error('[ERROR] Failed to set up test:', error)
+      throw error
     }
   })
 

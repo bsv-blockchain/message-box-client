@@ -411,19 +411,27 @@ export class MessageBoxClient {
         Logger.log(`[MB CLIENT] Received message in room ${roomId}:`, message)
 
         try {
-          const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
+          let parsedBody: unknown = message.body
+
+          if (typeof parsedBody === 'string') {
+            try {
+              parsedBody = JSON.parse(parsedBody)
+            } catch {
+              // Leave it as-is (plain text)
+            }
+          }
 
           if (
-            parsedBody !== null && typeof parsedBody === 'object' &&
+            parsedBody != null &&
             typeof parsedBody === 'object' &&
-            typeof parsedBody.encryptedMessage === 'string'
+            typeof (parsedBody as any).encryptedMessage === 'string'
           ) {
             Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
             const decrypted = await this.walletClient.decrypt({
               protocolID: [1, 'messagebox'],
               keyID: '1',
               counterparty: message.sender === this.getIdentityKey() ? 'self' : message.sender,
-              ciphertext: Utils.toArray(parsedBody.encryptedMessage, 'base64')
+              ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
             })
 
             message.body = Utils.toUTF8(decrypted.plaintext)
@@ -550,7 +558,7 @@ export class MessageBoxClient {
         message: {
           messageId: finalMessageId,
           recipient,
-          body: JSON.stringify(outgoingBody)
+          body: outgoingBody
         }
       })
 
@@ -663,7 +671,8 @@ export class MessageBoxClient {
 
     let finalBody: string | EncryptedMessage
     if (message.skipEncryption === true) {
-      finalBody = typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
+      const raw = typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
+      finalBody = JSON.stringify(raw)
     } else {
       const encryptedMessage = await this.walletClient.encrypt({
         protocolID: [1, 'messagebox'],
@@ -864,24 +873,33 @@ export class MessageBoxClient {
 
     for (const message of parsedResponse.messages) {
       try {
-        const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
+        let parsedBody: unknown = message.body
+        if (typeof parsedBody === 'string') {
+          try {
+            parsedBody = JSON.parse(parsedBody)
+          } catch {
+            // It's just plain text
+          }
+        }
 
         if (
-          parsedBody !== null && typeof parsedBody === 'object' &&
+          parsedBody != null &&
           typeof parsedBody === 'object' &&
-          typeof parsedBody.encryptedMessage === 'string'
+          typeof (parsedBody as any).encryptedMessage === 'string'
         ) {
           Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
           const decrypted = await this.walletClient.decrypt({
             protocolID: [1, 'messagebox'],
             keyID: '1',
             counterparty: message.sender === this.getIdentityKey() ? 'self' : message.sender,
-            ciphertext: Utils.toArray(parsedBody.encryptedMessage, 'base64')
+            ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
           })
 
           message.body = Utils.toUTF8(decrypted.plaintext)
         } else {
-          message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
+          message.body = typeof parsedBody === 'string'
+            ? parsedBody
+            : JSON.stringify(parsedBody)
         }
       } catch (err) {
         Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt message in list:', err)
