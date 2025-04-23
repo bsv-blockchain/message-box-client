@@ -3,24 +3,19 @@
  * @description
  * Provides the `MessageBoxClient` class — a secure client library for sending and receiving messages
  * via a Message Box Server over HTTP and WebSocket. Messages are authenticated, optionally encrypted,
- * and routed using identity-based addressing.
+ * and routed using identity-based addressing based on BRC-2/BRC-42/BRC-43 protocols.
  *
  * Core Features:
  * - Authenticated message transport using identity keys
- * - Deterministic message ID generation via HMAC for deduplication
- * - CurvePoint-AES encryption with automatic key derivation
+ * - Deterministic message ID generation via HMAC (BRC-2)
+ * - AES-256-GCM encryption using ECDH shared secrets derived via BRC-42/BRC-43
  * - Support for sending messages to self (`counterparty: 'self'`)
  * - Live message streaming using WebSocket rooms
  * - Optional plaintext messaging with `skipEncryption`
  * - Overlay host discovery and advertisement broadcasting via SHIP
  * - MessageBox-based organization and acknowledgment system
  *
- * Overlay-enabled features include:
- * - Resolving recipient hosts using `LookupResolver` with `ls_messagebox`
- * - Broadcasting availability via signed PushDrop advertisements
- * - Fallback logic when overlay routing is unavailable
- *
- * See associated documentation and the `PeerPayClient` wrapper for advanced usage.
+ * See BRC-2 for details on the encryption scheme: https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0002.md
  *
  * @module MessageBoxClient
  * @author Project Babbage
@@ -98,12 +93,12 @@ export interface EncryptedMessage {
  * @class MessageBoxClient
  * @description
  * Provides a secure client for sending and receiving messages through a MessageBoxServer instance,
- * with support for both HTTP and WebSocket communication. It includes encrypted messaging,
- * overlay routing, and real-time delivery with room-based streaming.
+ * with support for both HTTP and WebSocket communication. Messages are end-to-end encrypted using
+ * AES-256-GCM per BRC-2 and BRC-42/43 key derivation with identity-based addressing.
  *
  * The client automatically handles:
  * - HMAC-based message ID generation for deduplication and verification
- * - Encrypted messaging using CurvePoint-AES with asymmetric key agreement
+ * - Encrypts data using ECDH-derived AES keys via BRC-42/BRC-43 derivation
  * - Authenticated WebSocket channels with join/leave functionality
  * - Overlay-based host resolution and advertisement broadcasting
  * - Fallbacks to HTTP when WebSocket is unavailable or unacknowledged
@@ -412,8 +407,9 @@ export class MessageBoxClient {
    * - Automatically attempts to parse and decrypt message bodies.
    * - Emits the final message (as a `PeerMessage`) to the supplied `onMessage` handler.
    *
-   * If the incoming message is encrypted, the client decrypts it using CurvePoint-AES with identity key-based counterparty lookup.
-   * Messages sent by the client to itself are decrypted with `counterparty = 'self'`.
+   * If the incoming message is encrypted, the client decrypts it using AES-256-GCM via
+   * ECDH shared secrets derived from identity keys as defined in [BRC-2](https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0002.md).
+   * Messages sent by the client to itself are decrypted using `counterparty = 'self'`.
    *
    * @example
    * await client.listenForLiveMessages({
@@ -497,7 +493,8 @@ export class MessageBoxClient {
    * This method:
    * - Ensures the WebSocket connection is open and joins the correct room.
    * - Derives a unique message ID using an HMAC of the message body and counterparty identity key.
-   * - Encrypts the message body using CurvePoint-AES unless `skipEncryption` is explicitly set to `true`.
+   * - Encrypts the message body using AES-256-GCM based on the ECDH shared secret between derived keys, per [BRC-2](https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0002.md),
+   *   unless `skipEncryption` is explicitly set to `true`.
    * - Sends the message to a WebSocket room in the format `${recipient}-${messageBox}`.
    * - Waits for acknowledgment (`sendMessageAck-${roomId}`).
    * - If no acknowledgment is received within 10 seconds, falls back to `sendMessage()` over HTTP.
@@ -702,7 +699,7 @@ export class MessageBoxClient {
    * Sends a message over HTTP to a recipient's messageBox. This method:
    *
    * - Derives a deterministic `messageId` using an HMAC of the message body and recipient key.
-   * - Encrypts the message body using CurvePoint-AES unless `skipEncryption` is set to true.
+   * - Encrypts the message body using AES-256-GCM, derived from a shared secret using BRC-2-compliant key derivation and ECDH, unless `skipEncryption` is set to true.
    * - Automatically resolves the host via overlay LookupResolver unless an override is provided.
    * - Authenticates the request using the current identity key with `AuthFetch`.
    *
@@ -933,10 +930,11 @@ export class MessageBoxClient {
    * Messages are fetched from the resolved overlay host (via LookupResolver) or the default host if no advertisement is found.
    *
    * Each message is:
-   * - Parsed and, if encrypted, decrypted using CurvePoint-AES with the local wallet.
+   * - Parsed and, if encrypted, decrypted using AES-256-GCM via BRC-2-compliant ECDH key derivation and symmetric encryption.
    * - Returned as a normalized `PeerMessage` with readable string body content.
    *
-   * Decryption automatically accounts for self-messaging and ensures proper counterparty derivation.
+   * Decryption automatically derives a shared secret using the sender’s identity key and the receiver’s child private key.
+   * If the sender is the same as the recipient, the `counterparty` is set to `'self'`.
    *
    * @throws {Error} If no messageBox is specified, the request fails, or the server returns an error.
    *
