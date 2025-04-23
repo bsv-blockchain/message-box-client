@@ -34,8 +34,7 @@ import {
   Utils,
   Transaction,
   PushDrop,
-  SymmetricKey,
-  SecurityLevel
+  Base64String
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -88,11 +87,7 @@ export interface ListMessagesParams {
  * Defines the structure of a message that is encrypted
  */
 export interface EncryptedMessage {
-  encrypted: true
-  algorithm: 'curvepoint-aes'
-  senderPublicKey: string
-  encryptedSymmetricKey: number[]
-  encryptedMessage: number[]
+  encryptedMessage: Base64String
 }
 
 /**
@@ -115,7 +110,6 @@ export class MessageBoxClient {
   private readonly walletClient: WalletClient
   private socket?: ReturnType<typeof AuthSocketClient>
   private myIdentityKey?: string
-  private readonly overlayEnabled: boolean
   private readonly joinedRooms: Set<string> = new Set()
   private readonly lookupResolver: LookupResolver
 
@@ -124,26 +118,22 @@ export class MessageBoxClient {
    * @param options.host - Base URL of the MessageBox server
    * @param options.walletClient - WalletClient instance for identity and crypto operations
    * @param options.enableLogging - If true, enables structured logging
-   * @param options.overlayEnabled - Enables overlay resolution and fallback
    * @param options.networkPreset - LookupResolver overlay network ('local', 'mainnet', or 'testnet')
    */
-  constructor ({
+  constructor({
     host = 'https://messagebox.babbage.systems',
     walletClient,
     enableLogging = false,
-    overlayEnabled = false,
     networkPreset = 'local'
   }: {
     host?: string
     walletClient: WalletClient
     enableLogging?: boolean
-    overlayEnabled?: boolean
     networkPreset?: 'local' | 'mainnet' | 'testnet'
   }) {
     this.host = host
     this.walletClient = walletClient
     this.authFetch = new AuthFetch(this.walletClient)
-    this.overlayEnabled = overlayEnabled
 
     this.lookupResolver = new LookupResolver({
       networkPreset
@@ -160,7 +150,7 @@ export class MessageBoxClient {
    * @description Returns the current set of WebSocket room IDs that the client has joined.
    * This is primarily used for inspection and testing purposes.
    */
-  public getJoinedRooms (): Set<string> {
+  public getJoinedRooms(): Set<string> {
     return this.joinedRooms
   }
 
@@ -171,7 +161,7 @@ export class MessageBoxClient {
    * @description Returns the current identity key used by the client. This is fetched during setup
    * and used for both authentication and encryption operations.
    */
-  public getIdentityKey (): string {
+  public getIdentityKey(): string {
     if (this.myIdentityKey == null) {
       throw new Error('[MB CLIENT ERROR] Identity key is not set')
     }
@@ -184,7 +174,7 @@ export class MessageBoxClient {
    * @returns {AuthSocketClient | undefined}
    * @description Exposes the internal WebSocket client for testing or inspection.
    */
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
@@ -198,12 +188,11 @@ export class MessageBoxClient {
    * Steps:
    * 1. Fetches the user's identity key if not already loaded.
    * 2. Creates a new WebSocket connection using AuthSocketClient.
-   * 3. Sends authentication data (identityKey).
    * 4. Waits for `authenticationSuccess` or fails after a timeout.
    *
    * Authentication ensures only valid users join rooms and send messages.
    */
-  async initializeConnection (): Promise<void> {
+  async initializeConnection(): Promise<void> {
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -293,7 +282,7 @@ export class MessageBoxClient {
    * Uses the overlay LookupResolver to find the most recently anointed MessageBox host for a given recipient.
    * This enables clients to determine where to route overlay-based messages.
    */
-  private async resolveHostForRecipient (identityKey: string): Promise<string | null> {
+  private async resolveHostForRecipient(identityKey: string): Promise<string | null> {
     try {
       const result = await this.lookupResolver.query({
         service: 'ls_messagebox',
@@ -333,14 +322,9 @@ export class MessageBoxClient {
    * @returns {Promise<string>} - The host to use for routing the message (overlay if available, else default).
    *
    * @description
-   * Selects the appropriate server to send messages to. If overlay functionality is enabled,
-   * this attempts to resolve a recipient’s anointed host. Falls back to the default host if none is found.
+   * Selects the appropriate server to send messages to. Falls back to the default host if none is found.
    */
-  private async determineTargetHost (recipient: string): Promise<string> {
-    if (!this.overlayEnabled) {
-      return this.host
-    }
-
+  private async determineTargetHost(recipient: string): Promise<string> {
     const overlayHost = await this.resolveHostForRecipient(recipient)
     return overlayHost ?? this.host
   }
@@ -356,7 +340,7 @@ export class MessageBoxClient {
    * This function will initialize a WebSocket connection if needed and send an `authenticated` event
    * followed by a `joinRoom` event. It ensures no duplicate joins for already joined rooms.
    */
-  async joinRoom (messageBox: string): Promise<void> {
+  async joinRoom(messageBox: string): Promise<void> {
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -400,7 +384,7 @@ export class MessageBoxClient {
    * - Joins the appropriate WebSocket room
    * - Decrypts incoming encrypted messages before invoking the callback
    */
-  async listenForLiveMessages ({
+  async listenForLiveMessages({
     onMessage,
     messageBox
   }: {
@@ -428,10 +412,16 @@ export class MessageBoxClient {
         try {
           const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
 
-          if (parsedBody?.encrypted === true) {
+          if (parsedBody?.encryptedMessage === true) {
             Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
-            const decrypted = await this.decryptMessage(parsedBody)
-            message.body = decrypted
+            const decrypted = await this.walletClient.decrypt({
+              protocolID: [1, 'messagebox'],
+              keyID: '1',
+              counterparty: message.sender,
+              ciphertext: Utils.toArray(parsedBody.encryptedMessage, 'base64'),
+            })
+
+            message.body = Utils.toUTF8(decrypted.plaintext)
           } else {
             Logger.log('[MB CLIENT] Message is not encrypted.')
             message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
@@ -457,7 +447,7 @@ export class MessageBoxClient {
    * the method falls back to sending via HTTP. Message bodies are encrypted, and an HMAC is used
    * to generate a unique message ID.
    */
-  async sendLiveMessage ({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
+  async sendLiveMessage({ recipient, messageBox, body }: SendMessageParams): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
@@ -495,11 +485,17 @@ export class MessageBoxClient {
     const roomId = `${recipient}-${messageBox}`
     Logger.log(`[MB CLIENT] Sending WebSocket message to room: ${roomId}`)
 
-    // Encrypt the message body
-    const encryptedBody = await this.encryptMessageFor(
-      recipient,
-      typeof body === 'string' ? body : JSON.stringify(body)
-    )
+    // Encrypt the message body to send over sockets
+    const encryptedMessage = await this.walletClient.encrypt({
+      protocolID: [1, 'messagebox'],
+      keyID: '1',
+      counterparty: recipient,
+      plaintext: Utils.toArray(typeof body === 'string' ? body : JSON.stringify(body), 'utf8')
+    })
+
+    const encryptedMessageBody = {
+      encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext)
+    }
 
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
@@ -539,7 +535,7 @@ export class MessageBoxClient {
         message: {
           messageId,
           recipient,
-          body: JSON.stringify(encryptedBody)
+          body: JSON.stringify(encryptedMessageBody)
         }
       })
 
@@ -573,7 +569,7 @@ export class MessageBoxClient {
    * Leaves a previously joined WebSocket room. This is useful for reducing unnecessary
    * WebSocket traffic or managing room membership dynamically.
    */
-  async leaveRoom (messageBox: string): Promise<void> {
+  async leaveRoom(messageBox: string): Promise<void> {
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -600,7 +596,7 @@ export class MessageBoxClient {
    * Gracefully closes the WebSocket connection if it's active.
    * Useful for client shutdown, logout, or transitioning between identities.
    */
-  async disconnectWebSocket (): Promise<void> {
+  async disconnectWebSocket(): Promise<void> {
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -622,7 +618,7 @@ export class MessageBoxClient {
    * and generates a unique messageId using an HMAC. Uses overlay lookup to resolve the correct
    * host if `overlayEnabled` is true. Falls back to default host if no overlay is found.
    */
-  async sendMessage (
+  async sendMessage(
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
@@ -650,16 +646,23 @@ export class MessageBoxClient {
       throw new Error('Failed to generate message identifier.')
     }
 
-    const encryptedBody = await this.encryptMessageFor(
-      message.recipient,
-      typeof message.body === 'string' ? message.body : JSON.stringify(message.body)
-    )
+    // Encrypt the message body
+    const encryptedMessage = await this.walletClient.encrypt({
+      protocolID: [1, 'messagebox'],
+      keyID: '1',
+      counterparty: message.recipient,
+      plaintext: Utils.toArray(typeof message.body === 'string' ? message.body : JSON.stringify(message.body), 'utf8')
+    })
+
+    const encryptedMessageBody: EncryptedMessage = {
+      encryptedMessage: Utils.toUTF8(encryptedMessage.ciphertext)
+    }
 
     const requestBody = {
       message: {
         ...message,
         messageId,
-        body: JSON.stringify(encryptedBody)
+        body: encryptedMessageBody
       }
     }
 
@@ -680,15 +683,11 @@ export class MessageBoxClient {
         }
       }
 
-      const authHeaders = {
-        'Content-Type': 'application/json'
-      }
-
-      Logger.log('[MB CLIENT] Sending Headers:', JSON.stringify(authHeaders, null, 2))
-
       const response = await this.authFetch.fetch(`${finalHost}/sendMessage`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(requestBody)
       })
 
@@ -738,7 +737,7 @@ export class MessageBoxClient {
    *
    * @throws {Error} If the host URL is invalid or if broadcasting fails.
    */
-  async anointHost (host: string): Promise<{ txid: string }> {
+  async anointHost(host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
@@ -757,15 +756,14 @@ export class MessageBoxClient {
         Utils.toArray(timestamp, 'utf8'),
         Utils.toArray(nonce, 'utf8')
       ]
-      
+
       const pushdrop = new PushDrop(this.walletClient)
       const script = await pushdrop.lock(
         fields,
         [1, 'messagebox advertisement'],
         '1',
-        'self',
-        false, // anyoneCanSpend = false ✅
-        true   // forSelf = true ✅
+        'anyone',
+        true
       )
 
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
@@ -813,14 +811,11 @@ export class MessageBoxClient {
    *
    * @description
    * Queries the MessageBox server (or overlay-resolved host if enabled) for all messages
-   * in a specific messageBox. If any messages are encrypted with CurvePoint AES, they are decrypted
+   * in a specific messageBox. If any messages are encrypted, they are decrypted
    * using the sender’s public key and the local user's wallet.
-   *
-   * If the overlay is enabled, the most recently anointed host will be used as the target instead of the default.
-   *
    * @throws {Error} If the messageBox is empty, or if the server response indicates failure.
    */
-  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
@@ -831,8 +826,7 @@ export class MessageBoxClient {
     const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: identityKey
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ messageBox })
     })
@@ -847,10 +841,16 @@ export class MessageBoxClient {
       try {
         const parsedBody = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
 
-        if (parsedBody?.encrypted === true) {
+        if (parsedBody?.encryptedMessage === true) {
           Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
-          const decrypted = await this.decryptMessage(parsedBody)
-          message.body = decrypted
+          const decrypted = await this.walletClient.decrypt({
+            protocolID: [1, 'messagebox'],
+            keyID: '1',
+            counterparty: message.sender,
+            ciphertext: Utils.toArray(parsedBody.encryptedMessage, 'base64'),
+          })
+
+          message.body = Utils.toUTF8(decrypted.plaintext)
         } else {
           message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
         }
@@ -878,7 +878,7 @@ export class MessageBoxClient {
    *
    * @throws {Error} If the messageIds array is empty, or the request fails.
    */
-  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
@@ -891,8 +891,7 @@ export class MessageBoxClient {
     const acknowledged = await this.authFetch.fetch(`${targetHost}/acknowledgeMessage`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: identityKey
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ messageIds })
     })
@@ -904,83 +903,5 @@ export class MessageBoxClient {
     }
 
     return parsedAcknowledged.status
-  }
-
-  /**
-   * @method encryptMessageFor
-   * @async
-   * @param {string} recipient - The public key of the recipient to encrypt the message for.
-   * @param {string} message - The raw message string to be encrypted.
-   * @param {[SecurityLevel, string]} protocolID - The protocol ID tuple used for deriving the encryption key.
-   * @param {string} keyID - The key ID used for encrypting the symmetric key (default: 'default').
-   * @returns {Promise<EncryptedMessage>} - Returns an object containing all fields required for secure decryption.
-   *
-   * @description
-   * Encrypts a plaintext message using AES (symmetric encryption), then encrypts the symmetric key using
-   * CurvePoint asymmetric encryption via the BSV SDK. The result can be sent securely to the recipient.
-   *
-   * The `protocolID` and `keyID` ensure the correct key pair is used and allow key separation for different applications.
-   */
-  async encryptMessageFor (
-    recipient: string,
-    message: string,
-    protocolID: [SecurityLevel, string] = [1, 'messagebox'],
-    keyID: string = 'default'
-  ): Promise<EncryptedMessage> {
-    const symmetricKey = SymmetricKey.fromRandom()
-
-    const encryptedMessage = symmetricKey.encrypt(Utils.toArray(message, 'utf8')) as number[]
-
-    const { publicKey: senderPublicKey } = await this.walletClient.getPublicKey({ identityKey: true })
-
-    const encryptedKeyResult = await this.walletClient.encrypt({
-      protocolID,
-      keyID,
-      counterparty: recipient,
-      plaintext: symmetricKey.toArray()
-    })
-
-    return {
-      encrypted: true,
-      algorithm: 'curvepoint-aes',
-      senderPublicKey,
-      encryptedSymmetricKey: encryptedKeyResult.ciphertext,
-      encryptedMessage
-    }
-  }
-
-  /**
-   * @method decryptMessage
-   * @async
-   * @param {EncryptedMessage} obj - The encrypted message object containing the ciphertext and encrypted symmetric key.
-   * @param {[SecurityLevel, string]} protocolID - The protocol ID tuple used for key derivation and decryption.
-   * @param {string} keyID - The key ID used to decrypt the symmetric key (default: 'default').
-   * @returns {Promise<string>} - The original plaintext message string after decryption.
-   *
-   * @description
-   * Decrypts a previously encrypted message that was sent using `encryptMessageFor`.
-   * This involves two steps:
-   * 1. Decrypt the symmetric key using CurvePoint asymmetric decryption with the identity wallet.
-   * 2. Decrypt the message using the decrypted symmetric key.
-   *
-   * Used internally by the client when parsing live messages or polling lists.
-   */
-  async decryptMessage (
-    obj: EncryptedMessage,
-    protocolID: [SecurityLevel, string] = [1, 'messagebox'],
-    keyID: string = 'default'
-  ): Promise<string> {
-    const decrypted = await this.walletClient.decrypt({
-      protocolID,
-      keyID,
-      counterparty: obj.senderPublicKey,
-      ciphertext: obj.encryptedSymmetricKey
-    })
-
-    const symmetricKey = new SymmetricKey(decrypted.plaintext)
-
-    const decryptedRaw = symmetricKey.decrypt(obj.encryptedMessage) as number[]
-
-    return Utils.toUTF8(decryptedRaw)
   }
 }
