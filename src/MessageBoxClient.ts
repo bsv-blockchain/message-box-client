@@ -35,7 +35,8 @@ import {
   Transaction,
   PushDrop,
   SymmetricKey,
-  SecurityLevel
+  SecurityLevel,
+  PublicKey
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -759,6 +760,12 @@ export class MessageBoxClient {
       ]
       
       const pushdrop = new PushDrop(this.walletClient)
+      Logger.log('Fields:', fields.map(a => Utils.toHex(a)))
+      Logger.log('ProtocolID:', [1, 'messagebox advertisement'])
+      Logger.log('KeyID:', '1')
+      Logger.log('SignAs:', 'self')
+      Logger.log('anyoneCanSpend:', false)
+      Logger.log('forSelf:', true)
       const script = await pushdrop.lock(
         fields,
         [1, 'messagebox advertisement'],
@@ -769,6 +776,8 @@ export class MessageBoxClient {
       )
 
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
+
+      
 
       const { tx, txid } = await this.walletClient.createAction({
         description: 'Anoint host for overlay routing',

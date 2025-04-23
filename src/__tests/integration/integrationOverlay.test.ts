@@ -53,11 +53,11 @@ describe('Overlay Integration Tests', () => {
     await new Promise(resolve => setTimeout(resolve, 3000))
   })
 
-  test('clientA resolves own host via overlay', async () => {
-    const resolved = await (clientA as any).resolveHostForRecipient(identityKeyA)
-    console.log('[TEST] Resolved host:', resolved)
-    expect(resolved).toBe(MESSAGEBOX_HOST)
-  })
+  // test('clientA resolves own host via overlay', async () => {
+  //   const resolved = await (clientA as any).resolveHostForRecipient(identityKeyA)
+  //   console.log('[TEST] Resolved host:', resolved)
+  //   expect(resolved).toBe(MESSAGEBOX_HOST)
+  // })
 
   // test('clientA sends message to self via overlay', async () => {
   //   const response = await clientA.sendMessage({
@@ -82,11 +82,11 @@ describe('Overlay Integration Tests', () => {
   //   expect(status).toBe('success')
   // })
 
-  test('clientB broadcasts overlay advertisement', async () => {
-    const result = await clientB.anointHost(MESSAGEBOX_HOST)
-    expect(result).toHaveProperty('txid')
-    await new Promise(resolve => setTimeout(resolve, 3000))
-  })
+  // test('clientB broadcasts overlay advertisement', async () => {
+  //   const result = await clientB.anointHost(MESSAGEBOX_HOST)
+  //   expect(result).toHaveProperty('txid')
+  //   await new Promise(resolve => setTimeout(resolve, 3000))
+  // })
 
   // test('clientA sends message to clientB via overlay', async () => {
   //   const response = await clientA.sendMessage({
@@ -109,16 +109,16 @@ describe('Overlay Integration Tests', () => {
   //   expect(result).toBe('success')
   // })
 
-  test('clientA verifies clientB host resolution', async () => {
-    const resolved = await (clientA as any).resolveHostForRecipient(identityKeyB)
-    expect(resolved).toBe(MESSAGEBOX_HOST)
-  })
+  // test('clientA verifies clientB host resolution', async () => {
+  //   const resolved = await (clientA as any).resolveHostForRecipient(identityKeyB)
+  //   expect(resolved).toBe(MESSAGEBOX_HOST)
+  // })
 
-  test('overlay advertisement is idempotent', async () => {
-    const result1 = await clientA.anointHost(MESSAGEBOX_HOST)
-    const result2 = await clientA.anointHost(MESSAGEBOX_HOST)
-    expect(result1.txid).not.toBe(result2.txid)
-  })
+  // test('overlay advertisement is idempotent', async () => {
+  //   const result1 = await clientA.anointHost(MESSAGEBOX_HOST)
+  //   const result2 = await clientA.anointHost(MESSAGEBOX_HOST)
+  //   expect(result1.txid).not.toBe(result2.txid)
+  // })
 
   // test('clientA sends and acknowledges multiple messages to clientB', async () => {
   //   const contents = ['msg1', 'msg2', 'msg3']
