@@ -947,7 +947,7 @@ export class MessageBoxClient {
     }
 
     const identityKey = this.getIdentityKey()
-    const targetHost = await this.resolveHostForRecipient(identityKey) ?? this.host
+    const targetHost = await this.resolveHostForRecipient(identityKey)
 
     const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
       method: 'POST',
@@ -963,16 +963,20 @@ export class MessageBoxClient {
       throw new Error(parsedResponse.description)
     }
 
+    const tryParse = (raw: string): any => {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return raw
+      }
+    }
+
     for (const message of parsedResponse.messages) {
       try {
-        let parsedBody: unknown = message.body
-        if (typeof parsedBody === 'string') {
-          try {
-            parsedBody = JSON.parse(parsedBody)
-          } catch {
-            // It's just plain text
-          }
-        }
+        const parsedBody: unknown =
+          typeof message.body === 'string'
+            ? tryParse(message.body)
+            : message.body
 
         if (
           parsedBody != null &&
@@ -987,11 +991,10 @@ export class MessageBoxClient {
             ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
           })
 
-          message.body = Utils.toUTF8(decrypted.plaintext)
+          const decryptedText = Utils.toUTF8(decrypted.plaintext)
+          message.body = tryParse(decryptedText)
         } else {
-          message.body = typeof parsedBody === 'string'
-            ? parsedBody
-            : JSON.stringify(parsedBody)
+          message.body = parsedBody
         }
       } catch (err) {
         Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt message in list:', err)
