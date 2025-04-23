@@ -135,4 +135,21 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
 
     expect(response.status).toBe('success')
   }, 15000)
+
+  /** TEST: Send a message without encryption **/
+  test('should send a message without encryption when skipEncryption is true', async () => {
+    const plaintextMessage = 'Unencrypted test message'
+    const response = await messageBoxClient.sendMessage({
+      recipient: recipientKey,
+      messageBox,
+      body: plaintextMessage,
+      skipEncryption: true // 🔹 bypass encryption
+    })
+
+    expect(response).toHaveProperty('status', 'success')
+    expect(response).toHaveProperty('messageId', expect.any(String))
+
+    const messages = await messageBoxClient.listMessages({ messageBox })
+    expect(messages.some(msg => msg.body === plaintextMessage)).toBe(true)
+  }, 30000)
 })
