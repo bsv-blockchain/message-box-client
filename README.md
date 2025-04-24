@@ -179,7 +179,503 @@ paymentDemo().catch(console.error)
 
 ## 5. API Reference
 
+```md
 ### 5.1. MessageBoxClient API
+<!--#region ts2md-api-merged-here-->
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+##### Interfaces
+
+| |
+| --- |
+| [AcknowledgeMessageParams](#interface-acknowledgemessageparams) |
+| [EncryptedMessage](#interface-encryptedmessage) |
+| [ListMessagesParams](#interface-listmessagesparams) |
+| [PeerMessage](#interface-peermessage) |
+| [SendMessageParams](#interface-sendmessageparams) |
+| [SendMessageResponse](#interface-sendmessageresponse) |
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+
+###### Interface: AcknowledgeMessageParams
+
+Defines the structure of a request to acknowledge messages.
+
+Example
+
+```ts
+{
+  messageIds: ["abc123", "def456"]
+}
+```
+
+```ts
+export interface AcknowledgeMessageParams {
+    messageIds: string[];
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: EncryptedMessage
+
+Encapsulates an AES-256-GCM encrypted message body.
+
+Used when transmitting encrypted payloads to the MessageBox server.
+
+```ts
+export interface EncryptedMessage {
+    encryptedMessage: Base64String;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: ListMessagesParams
+
+Defines the structure of a request to list messages.
+
+Example
+
+```ts
+{
+  messageBox: "payment_inbox"
+}
+```
+
+```ts
+export interface ListMessagesParams {
+    messageBox: string;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: PeerMessage
+
+Represents a decrypted message received from a MessageBox.
+Includes metadata such as sender identity, timestamps, and optional acknowledgment status.
+
+Used in both HTTP and WebSocket message retrieval responses.
+
+```ts
+export interface PeerMessage {
+    messageId: string;
+    body: string;
+    sender: string;
+    created_at: string;
+    updated_at: string;
+    acknowledged?: boolean;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: SendMessageParams
+
+Parameters required to send a message.
+Message content may be a string or object, and encryption is enabled by default.
+
+Example
+
+```ts
+{
+  recipient: "03abc...",
+  messageBox: "payment_inbox",
+  body: { type: "ping" },
+  skipEncryption: false
+}
+```
+
+```ts
+export interface SendMessageParams {
+    recipient: string;
+    messageBox: string;
+    body: string | object;
+    messageId?: string;
+    skipEncryption?: boolean;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: SendMessageResponse
+
+Server response structure for successful message delivery.
+
+Returned by both `sendMessage` and `sendLiveMessage`.
+
+```ts
+export interface SendMessageResponse {
+    status: string;
+    messageId: string;
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+##### Classes
+
+| |
+| --- |
+| [Logger](#class-logger) |
+| [MessageBoxClient](#class-messageboxclient) |
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+
+###### Class: Logger
+
+```ts
+export class Logger {
+    static enable(): void 
+    static disable(): void 
+    static log(...args: unknown[]): void 
+    static warn(...args: unknown[]): void 
+    static error(...args: unknown[]): void 
+}
+```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Class: MessageBoxClient
+
+Example
+
+```ts
+const mb = new MessageBoxClient({ walletClient, enableLogging: true })
+await mb.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
+```
+
+```ts
+export class MessageBoxClient {
+    public readonly authFetch: AuthFetch;
+    constructor({ host = "https://messagebox.babbage.systems", walletClient, enableLogging = false, networkPreset = "local" }: {
+        host?: string;
+        walletClient: WalletClient;
+        enableLogging?: boolean;
+        networkPreset?: "local" | "mainnet" | "testnet";
+    }) 
+    public getJoinedRooms(): Set<string> 
+    public getIdentityKey(): string 
+    public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined 
+    async initializeConnection(): Promise<void> 
+    async joinRoom(messageBox: string): Promise<void> 
+    async listenForLiveMessages({ onMessage, messageBox }: {
+        onMessage: (message: PeerMessage) => void;
+        messageBox: string;
+    }): Promise<void> 
+    async sendLiveMessage({ recipient, messageBox, body, messageId, skipEncryption }: SendMessageParams): Promise<SendMessageResponse> 
+    async leaveRoom(messageBox: string): Promise<void> 
+    async disconnectWebSocket(): Promise<void> 
+    async sendMessage(message: SendMessageParams, overrideHost?: string): Promise<SendMessageResponse> 
+    async anointHost(host: string): Promise<{
+        txid: string;
+    }> 
+    async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> 
+    async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> 
+}
+```
+
+See also: [AcknowledgeMessageParams](#interface-acknowledgemessageparams), [ListMessagesParams](#interface-listmessagesparams), [PeerMessage](#interface-peermessage), [SendMessageParams](#interface-sendmessageparams), [SendMessageResponse](#interface-sendmessageresponse)
+
+<details>
+
+<summary>Class MessageBoxClient Details</summary>
+
+####### Constructor
+
+```ts
+constructor({ host = "https://messagebox.babbage.systems", walletClient, enableLogging = false, networkPreset = "local" }: {
+    host?: string;
+    walletClient: WalletClient;
+    enableLogging?: boolean;
+    networkPreset?: "local" | "mainnet" | "testnet";
+}) 
+```
+
+Argument Details
+
++ **options**
+  + Initialization options
+
+####### Method acknowledgeMessage
+
+```ts
+async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> 
+```
+See also: [AcknowledgeMessageParams](#interface-acknowledgemessageparams)
+
+Returns
+
+- A string indicating the result, typically `'success'`.
+
+Argument Details
+
++ **params**
+  + An object containing an array of message IDs to acknowledge.
+
+Throws
+
+If the message ID array is missing or empty, or if the request to the server fails.
+
+Example
+
+```ts
+await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
+```
+
+####### Method anointHost
+
+```ts
+async anointHost(host: string): Promise<{
+    txid: string;
+}> 
+```
+
+Returns
+
+- The transaction ID of the advertisement broadcast to the overlay network.
+
+Argument Details
+
++ **host**
+  + The full URL of the server you want to designate as your MessageBox host (e.g., "https://mybox.com").
+
+Throws
+
+If the URL is invalid, the PushDrop creation fails, or the overlay broadcast does not succeed.
+
+Example
+
+```ts
+const { txid } = await client.anointHost('https://my-messagebox.io')
+```
+
+####### Method disconnectWebSocket
+
+```ts
+async disconnectWebSocket(): Promise<void> 
+```
+
+Returns
+
+Resolves when the WebSocket connection is successfully closed.
+
+Example
+
+```ts
+await client.disconnectWebSocket()
+```
+
+####### Method getIdentityKey
+
+```ts
+public getIdentityKey(): string 
+```
+
+Returns
+
+The identity public key of the user
+
+Throws
+
+If identity key has not been initialized yet
+
+####### Method getJoinedRooms
+
+```ts
+public getJoinedRooms(): Set<string> 
+```
+
+Returns
+
+A set of currently joined WebSocket room IDs
+
+####### Method initializeConnection
+
+```ts
+async initializeConnection(): Promise<void> 
+```
+
+Throws
+
+If the identity key is unavailable or authentication fails
+
+Example
+
+```ts
+const mb = new MessageBoxClient({ walletClient })
+await mb.initializeConnection()
+// WebSocket is now ready for use
+```
+
+####### Method joinRoom
+
+```ts
+async joinRoom(messageBox: string): Promise<void> 
+```
+
+Argument Details
+
++ **messageBox**
+  + The name of the WebSocket room to join (e.g., "payment_inbox").
+
+Example
+
+```ts
+await client.joinRoom('payment_inbox')
+// Now listening for real-time messages in room '028d...-payment_inbox'
+```
+
+####### Method leaveRoom
+
+```ts
+async leaveRoom(messageBox: string): Promise<void> 
+```
+
+Argument Details
+
++ **messageBox**
+  + The name of the WebSocket room to leave (e.g., `payment_inbox`).
+
+Example
+
+```ts
+await client.leaveRoom('payment_inbox')
+```
+
+####### Method listMessages
+
+```ts
+async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> 
+```
+See also: [ListMessagesParams](#interface-listmessagesparams), [PeerMessage](#interface-peermessage)
+
+Returns
+
+- Returns an array of decrypted `PeerMessage` objects.
+
+Argument Details
+
++ **params**
+  + Contains the name of the messageBox to read from.
+
+Throws
+
+If no messageBox is specified, the request fails, or the server returns an error.
+
+Example
+
+```ts
+const messages = await client.listMessages({ messageBox: 'inbox' })
+messages.forEach(msg => console.log(msg.sender, msg.body))
+```
+
+####### Method listenForLiveMessages
+
+```ts
+async listenForLiveMessages({ onMessage, messageBox }: {
+    onMessage: (message: PeerMessage) => void;
+    messageBox: string;
+}): Promise<void> 
+```
+See also: [PeerMessage](#interface-peermessage)
+
+Argument Details
+
++ **params**
+  + Configuration for the live message listener.
+
+Example
+
+```ts
+await client.listenForLiveMessages({
+  messageBox: 'payment_inbox',
+  onMessage: (msg) => console.log('Received live message:', msg)
+})
+```
+
+####### Method sendLiveMessage
+
+```ts
+async sendLiveMessage({ recipient, messageBox, body, messageId, skipEncryption }: SendMessageParams): Promise<SendMessageResponse> 
+```
+See also: [SendMessageParams](#interface-sendmessageparams), [SendMessageResponse](#interface-sendmessageresponse)
+
+Returns
+
+A success response with the generated messageId.
+
+Argument Details
+
++ **param0**
+  + The message parameters including recipient, box name, body, and options.
+
+Throws
+
+If message validation fails, HMAC generation fails, or both WebSocket and HTTP fail to deliver.
+
+Example
+
+```ts
+await client.sendLiveMessage({
+  recipient: '028d...',
+  messageBox: 'payment_inbox',
+  body: { amount: 1000 }
+})
+```
+
+####### Method sendMessage
+
+```ts
+async sendMessage(message: SendMessageParams, overrideHost?: string): Promise<SendMessageResponse> 
+```
+See also: [SendMessageParams](#interface-sendmessageparams), [SendMessageResponse](#interface-sendmessageresponse)
+
+Returns
+
+- Resolves with `{ status, messageId }` on success.
+
+Argument Details
+
++ **message**
+  + Contains recipient, messageBox name, message body, optional messageId, and skipEncryption flag.
++ **overrideHost**
+  + Optional host to override overlay resolution (useful for testing or private routing).
+
+Throws
+
+If validation, encryption, HMAC, or network request fails.
+
+Example
+
+```ts
+await client.sendMessage({
+  recipient: '03abc...',
+  messageBox: 'notifications',
+  body: { type: 'ping' }
+})
+```
+
+</details>
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+
+<!--#endregion ts2md-api-merged-here-->
 
 ```ts
 import { MessageBoxClient } from '@bsv/p2p'

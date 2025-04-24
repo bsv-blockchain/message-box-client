@@ -36,8 +36,10 @@ import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
 
 /**
- * Represents a message received through the MessageBox system.
- * Includes content, sender, timestamps, and optional acknowledgment status.
+ * Represents a decrypted message received from a MessageBox.
+ * Includes metadata such as sender identity, timestamps, and optional acknowledgment status.
+ *
+ * Used in both HTTP and WebSocket message retrieval responses.
  */
 export interface PeerMessage {
   messageId: string
@@ -51,6 +53,14 @@ export interface PeerMessage {
 /**
  * Parameters required to send a message.
  * Message content may be a string or object, and encryption is enabled by default.
+ *
+ * @example
+ * {
+ *   recipient: "03abc...",
+ *   messageBox: "payment_inbox",
+ *   body: { type: "ping" },
+ *   skipEncryption: false
+ * }
  */
 export interface SendMessageParams {
   recipient: string
@@ -61,7 +71,9 @@ export interface SendMessageParams {
 }
 
 /**
- * Represents the server's response when sending a message.
+ * Server response structure for successful message delivery.
+ *
+ * Returned by both `sendMessage` and `sendLiveMessage`.
  */
 export interface SendMessageResponse {
   status: string
@@ -69,21 +81,33 @@ export interface SendMessageResponse {
 }
 
 /**
- * Defines the structure of a request to acknowledge messages
+ * Defines the structure of a request to acknowledge messages.
+ *
+ * @example
+ * {
+ *   messageIds: ["abc123", "def456"]
+ * }
  */
 export interface AcknowledgeMessageParams {
   messageIds: string[]
 }
 
 /**
- * Defines the structure of a request to list messages
+ * Defines the structure of a request to list messages.
+ *
+ * @example
+ * {
+ *   messageBox: "payment_inbox"
+ * }
  */
 export interface ListMessagesParams {
   messageBox: string
 }
 
 /**
- * Defines the structure of a message that is encrypted
+ * Encapsulates an AES-256-GCM encrypted message body.
+ *
+ * Used when transmitting encrypted payloads to the MessageBox server.
  */
 export interface EncryptedMessage {
   encryptedMessage: Base64String
@@ -180,7 +204,7 @@ export class MessageBoxClient {
   /**
    * @property testSocket
    * @readonly
-   * @returns {AuthSocketClient | undefined}
+   * @returns {AuthSocketClient | undefined} The internal WebSocket client (or undefined if not connected).
    * @description
    * Exposes the underlying Authenticated WebSocket client used for live messaging.
    * This is primarily intended for debugging, test frameworks, or direct inspection.
@@ -209,6 +233,11 @@ export class MessageBoxClient {
    * If authentication fails or times out, the connection is rejected.
    *
    * @throws {Error} If the identity key is unavailable or authentication fails
+   *
+   * @example
+   * const mb = new MessageBoxClient({ walletClient })
+   * await mb.initializeConnection()
+   * // WebSocket is now ready for use
    */
   async initializeConnection (): Promise<void> {
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
@@ -668,7 +697,7 @@ export class MessageBoxClient {
   /**
    * @method disconnectWebSocket
    * @async
-   * @returns {Promise<void>}
+   * @returns {Promise<void>} Resolves when the WebSocket connection is successfully closed.
    *
    * @description
    * Gracefully disconnects the WebSocket connection to the MessageBox server.
