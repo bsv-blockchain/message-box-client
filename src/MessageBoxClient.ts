@@ -74,7 +74,7 @@ export class MessageBoxClient {
    * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
    * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
    */
-  constructor (options = {} as MessageBoxClientOptions) {
+  constructor(options = {} as MessageBoxClientOptions) {
     const {
       host = 'https://messagebox.babbage.systems',
       walletClient,
@@ -83,7 +83,7 @@ export class MessageBoxClient {
     } = options
 
     this.host = host
-    this.walletClient = walletClient ?? new WalletClient('auto', 'local')
+    this.walletClient = walletClient ?? new WalletClient()
     this.authFetch = new AuthFetch(this.walletClient)
 
     this.lookupResolver = new LookupResolver({
@@ -102,7 +102,7 @@ export class MessageBoxClient {
    * Returns a live list of WebSocket rooms the client is subscribed to.
    * Useful for inspecting state or ensuring no duplicates are joined.
    */
-  public getJoinedRooms (): Set<string> {
+  public getJoinedRooms(): Set<string> {
     return this.joinedRooms
   }
 
@@ -117,7 +117,7 @@ export class MessageBoxClient {
    * Note: Do not interact with the socket directly unless necessary.
    * Use the provided `sendLiveMessage`, `listenForLiveMessages`, and related methods.
    */
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
@@ -144,7 +144,7 @@ export class MessageBoxClient {
    * await mb.initializeConnection()
    * // WebSocket is now ready for use
    */
-  async initializeConnection (): Promise<void> {
+  async initializeConnection(): Promise<void> {
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -242,7 +242,7 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  private async resolveHostForRecipient (identityKey: string): Promise<string> {
+  private async resolveHostForRecipient(identityKey: string): Promise<string> {
     try {
       const result = await this.lookupResolver.query({
         service: 'ls_messagebox',
@@ -293,7 +293,7 @@ export class MessageBoxClient {
    * await client.joinRoom('payment_inbox')
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
-  async joinRoom (messageBox: string): Promise<void> {
+  async joinRoom(messageBox: string): Promise<void> {
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -351,7 +351,7 @@ export class MessageBoxClient {
    *   onMessage: (msg) => console.log('Received live message:', msg)
    * })
    */
-  async listenForLiveMessages ({
+  async listenForLiveMessages({
     onMessage,
     messageBox
   }: {
@@ -444,7 +444,7 @@ export class MessageBoxClient {
    *   body: { amount: 1000 }
    * })
    */
-  async sendLiveMessage ({
+  async sendLiveMessage({
     recipient,
     messageBox,
     body,
@@ -581,7 +581,7 @@ export class MessageBoxClient {
    * @example
    * await client.leaveRoom('payment_inbox')
    */
-  async leaveRoom (messageBox: string): Promise<void> {
+  async leaveRoom(messageBox: string): Promise<void> {
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -612,7 +612,7 @@ export class MessageBoxClient {
    * @example
    * await client.disconnectWebSocket()
    */
-  async disconnectWebSocket (): Promise<void> {
+  async disconnectWebSocket(): Promise<void> {
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -649,7 +649,7 @@ export class MessageBoxClient {
    *   body: { type: 'ping' }
    * })
    */
-  async sendMessage (
+  async sendMessage(
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
@@ -778,7 +778,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost (host: string): Promise<{ txid: string }> {
+  async anointHost(host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
@@ -869,7 +869,7 @@ export class MessageBoxClient {
    * const messages = await client.listMessages({ messageBox: 'inbox' })
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
-  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
@@ -955,7 +955,7 @@ export class MessageBoxClient {
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds }: AcknowledgeMessageParams): Promise<string> {
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
