@@ -9,7 +9,11 @@ const config: JestConfigWithTsJest = {
   testEnvironment: 'node',
 
   // Ignore compiled output
-  testPathIgnorePatterns: ['dist/'],
+  testPathIgnorePatterns: [
+    'dist/',
+    "/node_modules/",
+    "./src/__tests/integration/"
+  ],
 
   // These globals configure ts-jest to output ESM
   globals: {
