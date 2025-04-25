@@ -5,7 +5,8 @@
 ## Table of Contents
 
 1. [Introduction](#1-introduction)  
-2. [Installation](#2-installation)  
+2. [Installation](#2-installation) 
+   - [Running Integration Tests](#21-running-integration-tests)
 3. [Overview](#3-overview)  
    - [MessageBoxClient](#31-messageboxclient-overview)  
    - [PeerPayClient](#32-peerpayclient-overview)  
@@ -40,6 +41,64 @@ npm install @bsv/p2p
 The package exports both `MessageBoxClient` and `PeerPayClient`. You can import them individually in your JavaScript/TypeScript applications.
 
 ---
+
+### 2.1. Running Integration Tests
+The P2P integration tests verify live communication between the MessageBoxClient and a running instance of the MessageBox Server. To run them, make sure the following are set up:
+
+**Prerequisites**
+1.	MessageBox Server Running Locally
+You must have a local instance of the [MessageBox Server](https://github.com/bitcoin-sv/messagebox-server.git) running.
+Follow these steps inside the messagebox-server project:
+```bash
+git clone https://github.com/bitcoin-sv/messagebox-server.git
+cd messagebox-server
+cp .env.example .env
+npm install
+npm run start   # Starts LARS (overlay runtime)
+npm run dev     # Starts the MessageBox server
+```
+
+2.	Ensure Environment Configuration
+Your .env file in the MessageBox Server must have:
+```bash
+NODE_ENV=development
+BSV_NETWORK=local
+ENABLE_WEBSOCKETS=true
+```
+and valid values for:
+  - SERVER_PRIVATE_KEY
+  - WALLET_STORAGE_URL
+  - MONGO_URI and MONGO_DB
+  - (Optional) If using MySQL locally, ensure KNEX_DB_CONNECTION is properly set.
+
+3.	Wallet Storage Running (optional)
+If your .env points to a local wallet-storage instance, make sure it is also running.
+
+________________________________________
+
+**Running the Tests**
+Once the MessageBox Server and overlay service are running:
+```bash
+npm run test:integration
+```
+
+This will execute all integration tests under src/__tests__/integration/, including HTTP, WebSocket, encryption, and overlay scenarios.
+
+________________________________________
+
+**Notes**
+- If the server is not running, tests will fail with network or timeout errors.
+- Integration tests use the local network preset (networkPreset: 'local') and assume the default MessageBox API endpoints (e.g., http://localhost:8080).
+- Some tests may require clearing the database manually between runs if data conflicts occur.
+- Unit tests (non-integration) still run by default with npm test. Integration tests are separated.
+
+________________________________________
+
+**Quick Summary**
+- npm run test → unit tests only
+- npm run test:integration → integration tests against a running MessageBox server
+
+________________________________________
 
 ## 3. Overview
 
