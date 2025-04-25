@@ -64,6 +64,7 @@ export class MessageBoxClient {
   private myIdentityKey?: string
   private readonly joinedRooms: Set<string> = new Set()
   private readonly lookupResolver: LookupResolver
+  private readonly networkPreset: 'local' | 'mainnet' | 'testnet'
 
   /**
    * @constructor
@@ -78,12 +79,13 @@ export class MessageBoxClient {
       host = 'https://messagebox.babbage.systems',
       walletClient,
       enableLogging = false,
-      networkPreset = 'local'
+      networkPreset = 'mainnet'
     } = options
 
     this.host = host
-    this.walletClient = walletClient ?? new WalletClient()
+    this.walletClient = walletClient ?? new WalletClient('auto', 'local')
     this.authFetch = new AuthFetch(this.walletClient)
+    this.networkPreset = networkPreset
 
     this.lookupResolver = new LookupResolver({
       networkPreset
@@ -272,24 +274,38 @@ export class MessageBoxClient {
         query: { identityKey }
       })
 
-      if (
-        result != null &&
-        typeof result === 'object' &&
-        'type' in result &&
-        result.type === 'freeform' &&
-        'result' in result &&
-        Array.isArray((result as any).result?.hosts)
-      ) {
-        const hosts = (result as any).result.hosts
-        if (hosts.length > 0) {
-          Logger.log(`[MB CLIENT] Host found via LookupResolver: ${String(hosts[0])}`)
-          return hosts[0]
-        } else {
-          Logger.warn(`[MB CLIENT] LookupResolver returned empty host list for ${identityKey}`)
-        }
-      } else {
-        Logger.warn(`[MB CLIENT] Unexpected result from LookupResolver: ${JSON.stringify(result)}`)
+      if (result.type !== 'output-list') {
+        throw new Error(`Unexpected result type from LookupResolver: ${result.type}`)
       }
+
+      const messageBoxAdvertisements = []
+      for (const output of result.outputs) {
+        try {
+          const parsedTx = Transaction.fromBEEF(output.beef)
+          const lockingScript = parsedTx.outputs[output.outputIndex].lockingScript
+          const decodedToken = PushDrop.decode(lockingScript)
+          const [identityKeyBuf, hostBuf] = decodedToken.fields
+
+          if (!identityKeyBuf || !hostBuf || identityKeyBuf.length === 0 || hostBuf.length === 0) {
+            throw new Error('Invalid advertisement format')
+          }
+
+          messageBoxAdvertisements.push({
+            identityKey: Utils.toHex(identityKeyBuf),
+            host: Utils.toUTF8(hostBuf)
+          })
+        } catch {
+          // Skip invalid or non-pushdrop outputs
+        }
+      }
+
+      if (result.outputs.length === 0 || messageBoxAdvertisements.length === 0) {
+        Logger.warn(`[MB CLIENT] LookupResolver returned empty host list for ${identityKey}`)
+        Logger.warn(`[MB CLIENT] Returning default host: ${this.host}`)
+      }
+
+      // Just return the first advertisement found
+      return messageBoxAdvertisements[0].host
     } catch (error) {
       Logger.error('[MB CLIENT ERROR] Failed to resolve host from LookupResolver:', error)
     }
@@ -849,7 +865,7 @@ export class MessageBoxClient {
 
       if (tx !== undefined) {
         const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
-          networkPreset: 'local'
+          networkPreset: this.networkPreset
         })
 
         const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
