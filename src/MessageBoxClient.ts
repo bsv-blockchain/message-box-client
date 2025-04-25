@@ -83,7 +83,7 @@ export class MessageBoxClient {
     } = options
 
     this.host = host
-    this.walletClient = walletClient ?? new WalletClient('auto', 'local')
+    this.walletClient = walletClient ?? new WalletClient()
     this.authFetch = new AuthFetch(this.walletClient)
     this.networkPreset = networkPreset
 
