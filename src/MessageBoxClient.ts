@@ -34,84 +34,7 @@ import {
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
-
-/**
- * Represents a decrypted message received from a MessageBox.
- * Includes metadata such as sender identity, timestamps, and optional acknowledgment status.
- *
- * Used in both HTTP and WebSocket message retrieval responses.
- */
-export interface PeerMessage {
-  messageId: string
-  body: string
-  sender: string
-  created_at: string
-  updated_at: string
-  acknowledged?: boolean
-}
-
-/**
- * Parameters required to send a message.
- * Message content may be a string or object, and encryption is enabled by default.
- *
- * @example
- * {
- *   recipient: "03abc...",
- *   messageBox: "payment_inbox",
- *   body: { type: "ping" },
- *   skipEncryption: false
- * }
- */
-export interface SendMessageParams {
-  recipient: string
-  messageBox: string
-  body: string | object
-  messageId?: string
-  skipEncryption?: boolean
-}
-
-/**
- * Server response structure for successful message delivery.
- *
- * Returned by both `sendMessage` and `sendLiveMessage`.
- */
-export interface SendMessageResponse {
-  status: string
-  messageId: string
-}
-
-/**
- * Defines the structure of a request to acknowledge messages.
- *
- * @example
- * {
- *   messageIds: ["abc123", "def456"]
- * }
- */
-export interface AcknowledgeMessageParams {
-  messageIds: string[]
-}
-
-/**
- * Defines the structure of a request to list messages.
- *
- * @example
- * {
- *   messageBox: "payment_inbox"
- * }
- */
-export interface ListMessagesParams {
-  messageBox: string
-}
-
-/**
- * Encapsulates an AES-256-GCM encrypted message body.
- *
- * Used when transmitting encrypted payloads to the MessageBox server.
- */
-export interface EncryptedMessage {
-  encryptedMessage: Base64String
-}
+import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
 
 /**
  * @class MessageBoxClient
@@ -151,19 +74,16 @@ export class MessageBoxClient {
    * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
    * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
    */
-  constructor ({
-    host = 'https://messagebox.babbage.systems',
-    walletClient,
-    enableLogging = false,
-    networkPreset = 'local'
-  }: {
-    host?: string
-    walletClient: WalletClient
-    enableLogging?: boolean
-    networkPreset?: 'local' | 'mainnet' | 'testnet'
-  }) {
+  constructor (options = {} as MessageBoxClientOptions) {
+    const {
+      host = 'https://messagebox.babbage.systems',
+      walletClient,
+      enableLogging = false,
+      networkPreset = 'local'
+    } = options
+
     this.host = host
-    this.walletClient = walletClient
+    this.walletClient = walletClient ?? new WalletClient('auto', 'local')
     this.authFetch = new AuthFetch(this.walletClient)
 
     this.lookupResolver = new LookupResolver({
@@ -184,21 +104,6 @@ export class MessageBoxClient {
    */
   public getJoinedRooms (): Set<string> {
     return this.joinedRooms
-  }
-
-  /**
-   * @method getIdentityKey
-   * @returns {string} The identity public key of the user
-   * @throws {Error} If identity key has not been initialized yet
-   * @description
-   * Returns the client’s identity key, used for signing, encryption, and addressing.
-   * This value is fetched during WebSocket initialization or before sending a message.
-   */
-  public getIdentityKey (): string {
-    if (this.myIdentityKey == null) {
-      throw new Error('[MB CLIENT ERROR] Identity key is not set')
-    }
-    return this.myIdentityKey
   }
 
   /**
@@ -880,7 +785,7 @@ export class MessageBoxClient {
         throw new Error('Invalid host URL')
       }
 
-      const identityKey = this.getIdentityKey()
+      const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
 
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
 
@@ -969,7 +874,7 @@ export class MessageBoxClient {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const identityKey = this.getIdentityKey()
+    const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
     const targetHost = await this.resolveHostForRecipient(identityKey)
 
     const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
@@ -1057,7 +962,7 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
 
-    const identityKey = this.getIdentityKey()
+    const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
     const targetHost = await this.resolveHostForRecipient(identityKey) ?? this.host
 
     const acknowledged = await this.authFetch.fetch(`${targetHost}/acknowledgeMessage`, {
