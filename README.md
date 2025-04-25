@@ -120,6 +120,29 @@ ________________________________________
 
 ---
 
+#### Important: Initialization Requirement
+
+**Important:**  
+Starting with version `@bsv/p2p@1.1.0` and later, the `MessageBoxClient` requires **explicit initialization** unless a `host` is provided during construction.
+
+When you create a MessageBoxClient, you have two options:
+
+- Provide a host immediately during construction → your client is immediately ready to use.
+
+- Omit the host → you must call await init() before calling any methods. init() will automatically anoint a host in the overlay network if needed.
+
+Example:
+
+```ts
+const client = new MessageBoxClient({ walletClient })
+await client.init() // Must call init() first if no host was provided
+await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
+```
+
+The `init()` method will automatically anoint a host on the overlay if necessary, ensuring that your identity can receive messages from others.
+
+---
+
 ### 3.2. PeerPayClient Overview
 
 `PeerPayClient` builds on `MessageBoxClient` to enable **peer-to-peer Bitcoin payments**:
@@ -183,7 +206,7 @@ async function main() {
 
 main().catch(console.error)
 ```
-
+Note: In this example, the `host` was provided at construction, so `init()` does not need to be called manually.
 **Listening for Live Messages**  
 If you want push-style message notifications instead of polling:
 
@@ -749,7 +772,7 @@ new MessageBoxClient({
 })
 ```
 
-- **host**: (Optional) Base URL of the MessageBoxServer. Defaults to `https://messagebox.babbage.systems`.
+- **host**:  (Optional) Base URL of the MessageBoxServer. If omitted, await `init()` must be called before using the client. Defaults to `https://messagebox.babbage.systems`.
 - **walletClient**: A [WalletClient](https://github.com/bitcoin-sv) instance for identity key and signing.
 
 ---

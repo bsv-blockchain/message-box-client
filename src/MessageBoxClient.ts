@@ -57,7 +57,7 @@ import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, Message
  * await mb.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
  */
 export class MessageBoxClient {
-  private readonly host: string
+  private host?: string
   public readonly authFetch: AuthFetch
   private readonly walletClient: WalletClient
   private socket?: ReturnType<typeof AuthSocketClient>
@@ -65,24 +65,29 @@ export class MessageBoxClient {
   private readonly joinedRooms: Set<string> = new Set()
   private readonly lookupResolver: LookupResolver
   private readonly networkPreset: 'local' | 'mainnet' | 'testnet'
+  private initialized = false // 🔥 new
 
   /**
    * @constructor
    * @param {Object} options - Initialization options
-   * @param {string} [options.host] - Base URL of the MessageBox server (default: official Babbage instance)
+   * @param {string} [options.host] - Base URL of the MessageBox server (default: none)
    * @param {WalletClient} options.walletClient - Wallet instance used for auth, identity, and encryption
    * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
    * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
    */
   constructor (options: MessageBoxClientOptions = {}) {
     const {
-      host = 'https://messagebox.babbage.systems',
+      host,
       walletClient,
       enableLogging = false,
       networkPreset = 'mainnet'
     } = options
 
-    this.host = host
+    if (host != null && host.trim() !== '') {
+      this.host = host
+      this.initialized = true
+    }
+
     this.walletClient = walletClient ?? new WalletClient()
     this.authFetch = new AuthFetch(this.walletClient)
     this.networkPreset = networkPreset
@@ -93,6 +98,63 @@ export class MessageBoxClient {
 
     if (enableLogging) {
       Logger.enable()
+    }
+  }
+
+  /**
+ * Initializes the MessageBoxClient by setting or anointing a host.
+ * Must be called before using any other methods if no host was provided during construction.
+ *
+ * @param {string} [host] - Optional host to anoint and set.
+ * @param {boolean} [override=false] - Whether to override the existing host if different.
+ */
+  async init (host?: string, override = false): Promise<void> {
+    if (this.initialized) {
+      if (host !== null && this.host !== host) {
+        if (override) {
+          Logger.log('[MB CLIENT] Re-anointing host due to override:', host)
+          if (typeof host !== 'string' || host.trim() === '') {
+            throw new Error('Cannot anoint host: No valid host provided')
+          }
+          await this.walletClient.connectToSubstrate()
+          await this.anointHost(host)
+          this.host = host
+        } else {
+          Logger.log('[MB CLIENT] Host provided differs but override not enabled. Keeping existing host:', this.host)
+        }
+      }
+      return
+    }
+
+    // 🚀 Here for fresh initialization:
+    if (host == null || host.trim() === '') {
+      Logger.log('[MB CLIENT] No host provided. Falling back to default host based on network preset.')
+
+      host = this.networkPreset === 'mainnet'
+        ? 'https://messagebox.babbage.systems'
+        : 'https://testnet-messagebox.babbage.systems'
+    }
+
+    Logger.log('[MB CLIENT] Anointing host:', host)
+    if (typeof host !== 'string' || host.trim() === '') {
+      throw new Error('Cannot anoint host: No valid host provided')
+    }
+
+    await this.walletClient.connectToSubstrate()
+
+    await this.anointHost(host)
+    this.host = host
+    this.initialized = true
+
+    Logger.log('[MB CLIENT] Initialization complete. Host set to:', this.host)
+  }
+
+  /**
+   * Throws an error if the client has not been initialized yet.
+   */
+  private assertInitialized (): void {
+    if (!this.initialized || this.host == null || this.host.trim() === '') {
+      throw new Error('MessageBoxClient must be initialized before use. Call await init() first.')
     }
   }
 
@@ -170,6 +232,7 @@ export class MessageBoxClient {
    * // WebSocket is now ready for use
    */
   async initializeConnection (): Promise<void> {
+    this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -192,6 +255,9 @@ export class MessageBoxClient {
     Logger.log('[MB CLIENT] Setting up WebSocket connection...')
 
     if (this.socket == null) {
+      if (typeof this.host !== 'string' || this.host.trim() === '') {
+        throw new Error('Cannot initialize WebSocket: Host is not set')
+      }
       this.socket = AuthSocketClient(this.host, { wallet: this.walletClient })
 
       let identitySent = false
@@ -301,7 +367,7 @@ export class MessageBoxClient {
 
       if (result.outputs.length === 0 || messageBoxAdvertisements.length === 0) {
         Logger.warn(`[MB CLIENT] LookupResolver returned empty host list for ${identityKey}`)
-        Logger.warn(`[MB CLIENT] Returning default host: ${this.host}`)
+        Logger.warn(`[MB CLIENT] Returning default host: ${this.host ?? 'undefined'}`)
       }
 
       // Just return the first advertisement found
@@ -310,6 +376,9 @@ export class MessageBoxClient {
       Logger.error('[MB CLIENT ERROR] Failed to resolve host from LookupResolver:', error)
     }
 
+    if (typeof this.host !== 'string' || this.host.trim() === '') {
+      throw new Error('Cannot resolve host: No valid fallback host set')
+    }
     return this.host
   }
 
@@ -333,6 +402,7 @@ export class MessageBoxClient {
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
   async joinRoom (messageBox: string): Promise<void> {
+    this.assertInitialized()
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -397,6 +467,7 @@ export class MessageBoxClient {
     onMessage: (message: PeerMessage) => void
     messageBox: string
   }): Promise<void> {
+    this.assertInitialized()
     Logger.log(`[MB CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection and room join
@@ -490,6 +561,7 @@ export class MessageBoxClient {
     messageId,
     skipEncryption
   }: SendMessageParams): Promise<SendMessageResponse> {
+    this.assertInitialized()
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
@@ -621,6 +693,7 @@ export class MessageBoxClient {
    * await client.leaveRoom('payment_inbox')
    */
   async leaveRoom (messageBox: string): Promise<void> {
+    this.assertInitialized()
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -652,6 +725,7 @@ export class MessageBoxClient {
    * await client.disconnectWebSocket()
    */
   async disconnectWebSocket (): Promise<void> {
+    this.assertInitialized()
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -692,6 +766,7 @@ export class MessageBoxClient {
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
+    this.assertInitialized()
     if (message.recipient == null || message.recipient.trim() === '') {
       throw new Error('You must provide a message recipient!')
     }
@@ -909,6 +984,7 @@ export class MessageBoxClient {
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
   async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+    this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
@@ -995,6 +1071,7 @@ export class MessageBoxClient {
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
   async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+    this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
