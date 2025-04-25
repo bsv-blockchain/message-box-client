@@ -10,7 +10,8 @@
  * between identified peers on the BSV network.
  */
 
-import { MessageBoxClient, PeerMessage } from './MessageBoxClient.js'
+import { MessageBoxClient } from './MessageBoxClient.js'
+import { PeerMessage } from './types.js'
 import { WalletClient, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
 import { Logger } from './Utils/logger.js'
 
