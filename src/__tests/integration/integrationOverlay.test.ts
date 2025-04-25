@@ -138,4 +138,26 @@ describe('Overlay Integration Tests', () => {
     const status = await clientB.acknowledgeMessage({ messageIds: ids })
     expect(status).toBe('success')
   })
+
+  test('clientA reinitializes with init() and correctly anoints host', async () => {
+    const tempClient = new MessageBoxClient({
+      walletClient: walletA,
+      networkPreset: 'local',
+      enableLogging: true
+      // No host provided here!
+    })
+
+    // Call init manually
+    await tempClient.init(MESSAGEBOX_HOST)
+
+    // Verify client is initialized and host is correct
+    expect((tempClient as any).initialized).toBe(true)
+    expect((tempClient as any).host).toBe(MESSAGEBOX_HOST)
+
+    // Optionally, test that resolving our own identity also works
+    const resolvedHost = await (tempClient as any).resolveHostForRecipient(identityKeyA)
+    expect(resolvedHost).toBe(MESSAGEBOX_HOST)
+
+    await tempClient.disconnectWebSocket()
+  })
 })
