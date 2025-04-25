@@ -65,7 +65,8 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage
+      body: testMessage,
+      skipEncryption: true // TEMPORARY to test if this fixes the 400
     })
 
     console.log('[DEBUG] SendMessage Response:', response)
@@ -129,7 +130,8 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage2
+      body: testMessage2,
+      skipEncryption: true
     })
 
     console.log('[DEBUG] Overpayment SendMessage Response:', response)

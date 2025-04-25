@@ -1,17 +1,20 @@
 import { Base64String, WalletClient } from '@bsv/sdk'
 
+/**
+ * Configuration options for initializing a MessageBoxClient.
+ */
 export interface MessageBoxClientOptions {
+  /**
+   * Wallet instance used for auth, identity, and encryption.
+   * If not provided, a new WalletClient will be created.
+   */
+  walletClient?: WalletClient
+
   /**
    * Base URL of the MessageBox server.
    * @default 'https://messagebox.babbage.systems'
    */
   host?: string
-
-  /**
-   * Wallet instance used for auth, identity, and encryption.
-   * Required.
-   */
-  walletClient: WalletClient
 
   /**
    * If true, enables detailed logging to the console.

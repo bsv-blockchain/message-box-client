@@ -29,8 +29,7 @@ import {
   TopicBroadcaster,
   Utils,
   Transaction,
-  PushDrop,
-  Base64String
+  PushDrop
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -74,7 +73,7 @@ export class MessageBoxClient {
    * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
    * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
    */
-  constructor (options = {} as MessageBoxClientOptions) {
+  constructor (options: MessageBoxClientOptions = {}) {
     const {
       host = 'https://messagebox.babbage.systems',
       walletClient,
@@ -104,6 +103,30 @@ export class MessageBoxClient {
    */
   public getJoinedRooms (): Set<string> {
     return this.joinedRooms
+  }
+
+  /**
+ * @method getIdentityKey
+ * @returns {Promise<string>} The identity public key of the user
+ * @description
+ * Returns the client's identity key, used for signing, encryption, and addressing.
+ * If not already loaded, it will fetch and cache it.
+ */
+  public async getIdentityKey (): Promise<string> {
+    if (this.myIdentityKey != null && this.myIdentityKey.trim() !== '') {
+      return this.myIdentityKey
+    }
+
+    Logger.log('[MB CLIENT] Fetching identity key...')
+    try {
+      const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
+      this.myIdentityKey = keyResult.publicKey
+      Logger.log(`[MB CLIENT] Identity key fetched: ${this.myIdentityKey}`)
+      return this.myIdentityKey
+    } catch (error) {
+      Logger.error('[MB CLIENT ERROR] Failed to fetch identity key:', error)
+      throw new Error('Identity key retrieval failed')
+    }
   }
 
   /**
@@ -785,7 +808,7 @@ export class MessageBoxClient {
         throw new Error('Invalid host URL')
       }
 
-      const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
+      const identityKey = await this.getIdentityKey()
 
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
 
@@ -874,7 +897,7 @@ export class MessageBoxClient {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
+    const identityKey = await this.getIdentityKey()
     const targetHost = await this.resolveHostForRecipient(identityKey)
 
     const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
@@ -962,7 +985,7 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
 
-    const identityKey = (await this.walletClient.getPublicKey({ identityKey: true })).publicKey
+    const identityKey = await this.getIdentityKey()
     const targetHost = await this.resolveHostForRecipient(identityKey) ?? this.host
 
     const acknowledged = await this.authFetch.fetch(`${targetHost}/acknowledgeMessage`, {
