@@ -8,9 +8,9 @@ import { expect, test, describe, beforeAll } from '@jest/globals'
 
 jest.setTimeout(20000)
 
-const walletClient = new WalletClient('json-api', 'http://localhost:5001')
+const walletClient = new WalletClient('json-api', 'https://messagebox.babbage.systems')
 const messageBoxClient = new MessageBoxClient({
-  host: 'http://localhost:5001',
+  host: 'https://messagebox.babbage.systems',
   walletClient,
   enableLogging: true,
   networkPreset: 'local'
@@ -19,7 +19,7 @@ const messageBoxClient = new MessageBoxClient({
 let identityKey: string
 
 describe('Encryption Integration Tests', () => {
-  const messageBox = 'encrypted_test_box'
+  const messageBox = 'testBox'
   const plaintext = 'This is a secure test message.'
 
   beforeAll(async () => {
@@ -84,7 +84,7 @@ describe('Encryption Integration Tests', () => {
 
     // Manually fetch raw HTTP response
     const fetch = await messageBoxClient.authFetch.fetch(
-      'http://localhost:5001/listMessages',
+      'https://messagebox.babbage.systems/listMessages',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
