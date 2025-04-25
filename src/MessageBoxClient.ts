@@ -278,7 +278,7 @@ export class MessageBoxClient {
         throw new Error(`Unexpected result type from LookupResolver: ${result.type}`)
       }
 
-      const messageBoxAdvertisements = []
+      const messageBoxAdvertisements: Array<{ identityKey: string, host: string }> = []
       for (const output of result.outputs) {
         try {
           const parsedTx = Transaction.fromBEEF(output.beef)
@@ -286,7 +286,7 @@ export class MessageBoxClient {
           const decodedToken = PushDrop.decode(lockingScript)
           const [identityKeyBuf, hostBuf] = decodedToken.fields
 
-          if (!identityKeyBuf || !hostBuf || identityKeyBuf.length === 0 || hostBuf.length === 0) {
+          if (identityKeyBuf == null || hostBuf == null || identityKeyBuf.length === 0 || hostBuf.length === 0) {
             throw new Error('Invalid advertisement format')
           }
 
