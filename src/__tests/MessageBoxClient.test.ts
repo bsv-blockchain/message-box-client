@@ -703,4 +703,11 @@ describe('MessageBoxClient', () => {
       body: 'Hello'
     })).rejects.toThrow('MessageBoxClient must be initialized before use. Call await init() first.')
   })
+
+  it('does not anoint when advert already exists', async () => {
+    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue(['https://messagebox.babbage.systems'])
+    const spy = jest.spyOn(MessageBoxClient.prototype as any, 'anointHost')
+    await new MessageBoxClient({ walletClient: mockWalletClient }).init()
+    expect(spy).not.toHaveBeenCalled()
+  })
 })

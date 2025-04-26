@@ -87,9 +87,9 @@ export class MessageBoxClient {
     } = options
 
     const defaultHost =
-      this.networkPreset === 'mainnet'
-        ? DEFAULT_MAINNET_HOST
-        : DEFAULT_TESTNET_HOST
+      this.networkPreset === 'testnet'
+        ? DEFAULT_TESTNET_HOST
+        : DEFAULT_MAINNET_HOST
 
     this.host = host?.trim() ?? defaultHost
 
