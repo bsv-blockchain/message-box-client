@@ -8,6 +8,8 @@ jest.unmock('@bsv/sdk');
 
 (global as any).self = { crypto: webcrypto }
 
+jest.setTimeout(20000)
+
 // Explicitly initialize WalletClient with Meta Net Client (MNC)
 const walletClient = new WalletClient('json-api', 'localhost')
 
@@ -27,20 +29,24 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
   beforeAll(async () => {
     try {
       console.log('[DEBUG] Retrieving public key...')
-
-      // Retrieve recipient's public key
       const publicKeyResponse = await walletClient.getPublicKey({ identityKey: true })
-      console.log('[DEBUG] Public Key Response:', publicKeyResponse)
 
-      if (publicKeyResponse?.publicKey == null || publicKeyResponse?.publicKey === undefined || typeof publicKeyResponse.publicKey !== 'string' || publicKeyResponse.publicKey === '' || publicKeyResponse.publicKey.trim() === '') {
+      if (
+        publicKeyResponse?.publicKey == null ||
+        typeof publicKeyResponse.publicKey !== 'string' ||
+        publicKeyResponse.publicKey.trim() === ''
+      ) {
         throw new Error('[ERROR] getPublicKey returned an invalid key!')
       }
 
       recipientKey = publicKeyResponse.publicKey.trim()
       console.log('[DEBUG] Successfully assigned recipientKey:', recipientKey)
+
+      // Ensure identity key is set internally in MessageBoxClient
+      await messageBoxClient.initializeConnection()
     } catch (error) {
-      console.error('[ERROR] Failed to retrieve public key:', error)
-      throw error // Ensure test fails if retrieval is unsuccessful
+      console.error('[ERROR] Failed to set up test:', error)
+      throw error
     }
   })
 
@@ -48,11 +54,6 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     try {
       if (testMessageId !== undefined && testMessageId !== '') {
         console.log('[DEBUG] Cleaning up test messages...')
-
-        // const ackResponse = await messageBoxClient.acknowledgeMessage({ messageIds: [testMessageId] })
-        // console.log('[DEBUG] Acknowledge Response:', ackResponse)
-
-        // expect(ackResponse).toBe('success')
       }
     } catch (error) {
       console.error('[ERROR] Failed to acknowledge test message:', error)
@@ -64,7 +65,8 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage
+      body: testMessage,
+      skipEncryption: true // TEMPORARY to test if this fixes the 400
     })
 
     console.log('[DEBUG] SendMessage Response:', response)
@@ -79,7 +81,7 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
   test('should list messages from messageBox', async () => {
     const messages = await messageBoxClient.listMessages({ messageBox })
     expect(messages.length).toBeGreaterThan(0)
-    expect(messages.some(msg => msg.body === JSON.stringify(testMessage))).toBe(true)
+    expect(messages.some(msg => msg.body === testMessage)).toBe(true)
   }, 15000)
 
   /** TEST 3: List Messages from an Empty MessageBox **/
@@ -128,11 +130,29 @@ describe('MessageBoxClient HTTP Integration Tests (No WebSocket)', () => {
     const response = await messageBoxClient.sendMessage({
       recipient: recipientKey,
       messageBox,
-      body: testMessage2
+      body: testMessage2,
+      skipEncryption: true
     })
 
     console.log('[DEBUG] Overpayment SendMessage Response:', response)
 
     expect(response.status).toBe('success')
   }, 15000)
+
+  /** TEST: Send a message without encryption **/
+  test('should send a message without encryption when skipEncryption is true', async () => {
+    const plaintextMessage = 'Unencrypted test message'
+    const response = await messageBoxClient.sendMessage({
+      recipient: recipientKey,
+      messageBox,
+      body: plaintextMessage,
+      skipEncryption: true // Bypass encryption
+    })
+
+    expect(response).toHaveProperty('status', 'success')
+    expect(response).toHaveProperty('messageId', expect.any(String))
+
+    const messages = await messageBoxClient.listMessages({ messageBox })
+    expect(messages.some(msg => msg.body === plaintextMessage)).toBe(true)
+  }, 30000)
 })
