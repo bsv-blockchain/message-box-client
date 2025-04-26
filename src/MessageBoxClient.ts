@@ -35,6 +35,9 @@ import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
 import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
 
+const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
+const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
+
 /**
  * @class MessageBoxClient
  * @description
@@ -57,7 +60,7 @@ import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, Message
  * await mb.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
  */
 export class MessageBoxClient {
-  private host?: string
+  private host: string
   public readonly authFetch: AuthFetch
   private readonly walletClient: WalletClient
   private socket?: ReturnType<typeof AuthSocketClient>
@@ -65,12 +68,12 @@ export class MessageBoxClient {
   private readonly joinedRooms: Set<string> = new Set()
   private readonly lookupResolver: LookupResolver
   private readonly networkPreset: 'local' | 'mainnet' | 'testnet'
-  private initialized = false // 🔥 new
+  private initialized = false
 
   /**
    * @constructor
    * @param {Object} options - Initialization options
-   * @param {string} [options.host] - Base URL of the MessageBox server (default: none)
+   * @param {string} [options.host] - Base URL of the MessageBox server (defaults to known mainnet/testnet hosts)
    * @param {WalletClient} options.walletClient - Wallet instance used for auth, identity, and encryption
    * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
    * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
@@ -83,10 +86,12 @@ export class MessageBoxClient {
       networkPreset = 'mainnet'
     } = options
 
-    if (host != null && host.trim() !== '') {
-      this.host = host
-      this.initialized = true
-    }
+    const defaultHost =
+      this.networkPreset === 'mainnet'
+        ? DEFAULT_MAINNET_HOST
+        : DEFAULT_TESTNET_HOST
+
+    this.host = host?.trim() || defaultHost
 
     this.walletClient = walletClient ?? new WalletClient()
     this.authFetch = new AuthFetch(this.walletClient)
@@ -102,48 +107,38 @@ export class MessageBoxClient {
   }
 
   /**
- * Initializes the MessageBoxClient by setting or anointing a host.
- * Must be called before using any other methods if no host was provided during construction.
- *
- * @param {string} [host] - Optional host to anoint and set.
- * @param {boolean} [override=false] - Whether to override the existing host if different.
- */
-  async init (host?: string, override = false): Promise<void> {
-    if (this.initialized) {
-      if (host !== null && this.host !== host) {
-        if (override) {
-          Logger.log('[MB CLIENT] Re-anointing host due to override:', host)
-          if (typeof host !== 'string' || host.trim() === '') {
-            throw new Error('Cannot anoint host: No valid host provided')
-          }
-          await this.anointHost(host)
-          this.host = host
-        } else {
-          Logger.log('[MB CLIENT] Host provided differs but override not enabled. Keeping existing host:', this.host)
-        }
-      }
-      return
-    }
-
-    // 🚀 Here for fresh initialization:
-    if (host == null || host.trim() === '') {
-      Logger.log('[MB CLIENT] No host provided. Falling back to default host based on network preset.')
-
-      host = this.networkPreset === 'mainnet'
-        ? 'https://messagebox.babbage.systems'
-        : 'https://testnet-messagebox.babbage.systems'
-    }
-
-    Logger.log('[MB CLIENT] Anointing host:', host)
-    if (typeof host !== 'string' || host.trim() === '') {
+   * Initializes the MessageBoxClient by setting or anointing a host.
+   * Must be called before using any other methods if no host was provided during construction.
+   *
+   * @param {string} [targetHost] - Optional host to anoint and override the default host.
+   */
+  async init (targetHost: string = this.host): Promise<void> {
+    const normalizedHost = targetHost?.trim()
+    if (!normalizedHost) {
       throw new Error('Cannot anoint host: No valid host provided')
     }
 
-    await this.anointHost(host)
-    this.host = host
-    this.initialized = true
+    // Check if this is an override host
+    if (normalizedHost !== this.host) {
+      this.initialized = false
+      this.host = normalizedHost
+    }
 
-    Logger.log('[MB CLIENT] Initialization complete. Host set to:', this.host)
+    if (this.initialized) return
+
+    // 1. Get our identity key
+    const identityKey = await this.getIdentityKey()
+    // 2. Check for any matching advertisements for the given host
+    const [matchingHost] = await this.queryAdvertisements(identityKey, normalizedHost)
+    // 3. If none our found, anoint this host
+    if (!matchingHost || matchingHost !== normalizedHost) {
+      Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
+      const { txid } = await this.anointHost(normalizedHost)
+      if (!txid) {
+        throw new Error('Failed to anoint host: No transaction ID returned')
+      }
+    }
+    this.initialized = true
   }
 
   /**
@@ -313,7 +308,6 @@ export class MessageBoxClient {
 
   /**
    * @method resolveHostForRecipient
-   * @private
    * @async
    * @param {string} identityKey - The public identity key of the intended recipient.
    * @returns {Promise<string>} - A fully qualified host URL for the recipient's MessageBox server.
@@ -330,53 +324,61 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  private async resolveHostForRecipient (identityKey: string): Promise<string> {
+  async resolveHostForRecipient (identityKey: string): Promise<string> {
+    const hosts = await this.queryAdvertisements(identityKey)
+    if (hosts.length === 0) {
+      Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
+      return this.host
+    }
+    // Return the first host found
+    return hosts[0]
+  }
+
+  /**
+   * Core lookup: ask the LookupResolver (optionally filtered by host),
+   * decode every PushDrop output, and collect all the host URLs you find.
+   *
+   * @param identityKey  the recipient’s public key
+   * @param host?        if passed, only look for adverts anointed at that host
+   * @returns            0-length array if nothing valid was found
+   */
+  private async queryAdvertisements (
+    identityKey: string,
+    host?: string
+  ): Promise<string[]> {
+    const hosts: string[] = []
     try {
+      const query: Record<string, string> = { identityKey }
+      if (host) query.host = host
+
       const result = await this.lookupResolver.query({
         service: 'ls_messagebox',
-        query: { identityKey }
+        query
       })
-
       if (result.type !== 'output-list') {
-        throw new Error(`Unexpected result type from LookupResolver: ${result.type}`)
+        throw new Error(`Unexpected result type: ${result.type}`)
       }
 
-      const messageBoxAdvertisements: Array<{ identityKey: string, host: string }> = []
       for (const output of result.outputs) {
         try {
-          const parsedTx = Transaction.fromBEEF(output.beef)
-          const lockingScript = parsedTx.outputs[output.outputIndex].lockingScript
-          const decodedToken = PushDrop.decode(lockingScript)
-          const [identityKeyBuf, hostBuf] = decodedToken.fields
+          const tx = Transaction.fromBEEF(output.beef)
+          const script = tx.outputs[output.outputIndex].lockingScript
+          const token = PushDrop.decode(script)
+          const [, hostBuf] = token.fields
 
-          if (identityKeyBuf == null || hostBuf == null || identityKeyBuf.length === 0 || hostBuf.length === 0) {
-            throw new Error('Invalid advertisement format')
+          if (!hostBuf?.length) {
+            throw new Error('Empty host field')
           }
 
-          messageBoxAdvertisements.push({
-            identityKey: Utils.toHex(identityKeyBuf),
-            host: Utils.toUTF8(hostBuf)
-          })
+          hosts.push(Utils.toUTF8(hostBuf))
         } catch {
-          // Skip invalid or non-pushdrop outputs
+          // skip any malformed / non-PushDrop outputs
         }
       }
-
-      if (result.outputs.length === 0 || messageBoxAdvertisements.length === 0) {
-        Logger.warn(`[MB CLIENT] LookupResolver returned empty host list for ${identityKey}`)
-        Logger.warn(`[MB CLIENT] Returning default host: ${this.host ?? 'undefined'}`)
-      }
-
-      // Just return the first advertisement found
-      return messageBoxAdvertisements[0].host
-    } catch (error) {
-      Logger.error('[MB CLIENT ERROR] Failed to resolve host from LookupResolver:', error)
+    } catch (err) {
+      Logger.error('[MB CLIENT ERROR] _queryAdvertisements failed:', err)
     }
-
-    if (typeof this.host !== 'string' || this.host.trim() === '') {
-      throw new Error('Cannot resolve host: No valid fallback host set')
-    }
-    return this.host
+    return hosts
   }
 
   /**
@@ -986,10 +988,7 @@ export class MessageBoxClient {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const identityKey = await this.getIdentityKey()
-    const targetHost = await this.resolveHostForRecipient(identityKey)
-
-    const response = await this.authFetch.fetch(`${targetHost}/listMessages`, {
+    const response = await this.authFetch.fetch(`${this.host}/listMessages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1075,10 +1074,7 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
 
-    const identityKey = await this.getIdentityKey()
-    const targetHost = await this.resolveHostForRecipient(identityKey) ?? this.host
-
-    const acknowledged = await this.authFetch.fetch(`${targetHost}/acknowledgeMessage`, {
+    const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

@@ -707,7 +707,7 @@ describe('MessageBoxClient', () => {
     expect((client as any).initialized).toBe(true)
     expect((client as any).host).toBe('https://original-host.example')
 
-    await client.init('https://new-host.example', true)
+    await client.init('https://new-host.example')
 
     expect((client as any).host).toBe('https://new-host.example')
   })
