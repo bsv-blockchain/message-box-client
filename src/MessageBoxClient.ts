@@ -116,7 +116,6 @@ export class MessageBoxClient {
           if (typeof host !== 'string' || host.trim() === '') {
             throw new Error('Cannot anoint host: No valid host provided')
           }
-          await this.walletClient.connectToSubstrate()
           await this.anointHost(host)
           this.host = host
         } else {
@@ -139,8 +138,6 @@ export class MessageBoxClient {
     if (typeof host !== 'string' || host.trim() === '') {
       throw new Error('Cannot anoint host: No valid host provided')
     }
-
-    await this.walletClient.connectToSubstrate()
 
     await this.anointHost(host)
     this.host = host
