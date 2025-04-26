@@ -662,7 +662,7 @@ describe('MessageBoxClient', () => {
     const client = new MessageBoxClient({ walletClient: mockWalletClient })
 
     expect((client as any).initialized).toBe(false)
-    expect((client as any).host).toBe('https://staging-messagebox.babbage.systems')
+    expect((client as any).host).toBe('https://messagebox.babbage.systems')
   })
 
   it('Calls init() to set up a default host when missing', async () => {
