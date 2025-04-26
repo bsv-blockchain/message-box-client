@@ -53,8 +53,12 @@ const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
  * - Fallback to HTTP messaging when WebSocket is unavailable
  *
  * **Important:**
- * After constructing a MessageBoxClient instance, you **must call `await init()`**
- * before using any other methods. This ensures proper host setup and advertisement.
+ * The MessageBoxClient automatically calls `await init()` if needed.
+ * Manual initialization is optional but still supported.
+ *
+ * You may call `await init()` manually for explicit control, but you can also use methods
+ * like `sendMessage()` or `listenForLiveMessages()` directly — the client will initialize itself
+ * automatically if not yet ready.
  *
  * @example
  * const client = new MessageBoxClient({ walletClient, enableLogging: true })
@@ -84,8 +88,8 @@ export class MessageBoxClient {
    * Constructs a new MessageBoxClient.
    *
    * **Note:**
-   * Passing a `host` during construction *sets the default server*, but **does not complete setup**.
-   * You must still call `await init()` before sending or receiving messages.
+   * Passing a `host` during construction sets the default server.
+   * If you do not manually call `await init()`, the client will automatically initialize itself on first use.
    *
    * @example
    * const client = new MessageBoxClient({
@@ -137,8 +141,8 @@ export class MessageBoxClient {
    * - If no prior advertisement exists for the identity key and host, it automatically broadcasts a new advertisement.
    * - After calling init(), the client becomes ready to send, receive, and acknowledge messages.
    *
-   * This method **must be called** before using any other client methods.
-   *
+   * This method can be called manually for explicit control,
+   * but will be automatically invoked if omitted.
    * @throws {Error} If no valid host is provided, or anointing fails.
    *
    * @example
@@ -178,21 +182,17 @@ export class MessageBoxClient {
   /**
    * @method assertInitialized
    * @private
-   * @throws {Error} If the client has not been initialized via `await init()`.
-   *
    * @description
-   * Internal safeguard method.
-   *
    * Ensures that the MessageBoxClient has completed initialization before performing sensitive operations
    * like sending, receiving, or acknowledging messages.
    *
-   * If `initialized = false`, or if `host` is not properly set, it throws an error.
+   * If the client is not yet initialized, it will automatically call `await init()` to complete setup.
    *
    * Used automatically by all public methods that require initialization.
    */
-  private assertInitialized (): void {
+  private async assertInitialized (): Promise<void> {
     if (!this.initialized || this.host == null || this.host.trim() === '') {
-      throw new Error('MessageBoxClient must be initialized before use. Call await init() first.')
+      await this.init()
     }
   }
 
@@ -270,7 +270,7 @@ export class MessageBoxClient {
    * // WebSocket is now ready for use
    */
   async initializeConnection (): Promise<void> {
-    this.assertInitialized()
+    await this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -447,7 +447,7 @@ export class MessageBoxClient {
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
   async joinRoom (messageBox: string): Promise<void> {
-    this.assertInitialized()
+    await this.assertInitialized()
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
@@ -512,7 +512,7 @@ export class MessageBoxClient {
     onMessage: (message: PeerMessage) => void
     messageBox: string
   }): Promise<void> {
-    this.assertInitialized()
+    await this.assertInitialized()
     Logger.log(`[MB CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection and room join
@@ -606,7 +606,7 @@ export class MessageBoxClient {
     messageId,
     skipEncryption
   }: SendMessageParams): Promise<SendMessageResponse> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
@@ -738,7 +738,7 @@ export class MessageBoxClient {
    * await client.leaveRoom('payment_inbox')
    */
   async leaveRoom (messageBox: string): Promise<void> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
       return
@@ -770,7 +770,7 @@ export class MessageBoxClient {
    * await client.disconnectWebSocket()
    */
   async disconnectWebSocket (): Promise<void> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
       this.socket.disconnect()
@@ -811,7 +811,7 @@ export class MessageBoxClient {
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (message.recipient == null || message.recipient.trim() === '') {
       throw new Error('You must provide a message recipient!')
     }
@@ -1027,7 +1027,7 @@ export class MessageBoxClient {
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
   async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
@@ -1111,7 +1111,7 @@ export class MessageBoxClient {
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
   async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
-    this.assertInitialized()
+    await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }

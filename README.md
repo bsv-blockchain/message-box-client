@@ -123,10 +123,24 @@ ________________________________________
 #### Important: Initialization Requirement
 
 **Important:**  
-Starting with version `@bsv/p2p@1.1.0` and later, the `MessageBoxClient` requires explicit initialization before use, regardless of whether a `host` is provided or not.
+Starting with version `@bsv/p2p@1.2.0`, `MessageBoxClient` **automatically initializes itself** if needed.
 
-When you create a `MessageBoxClient`, you must call `await init()` before sending, receiving, or listening for messages.
-Initialization ensures the messagebox host where you want to receive messages has been properly registered on an overlay network. This registration ("anointing") makes your host discoverable, enabling others on the network to send messages to you.
+- If you provide a host during construction, the client will auto-initialize on first use.
+- If no host is provided, the client will anoint a host from the overlay network automatically during initialization.
+
+You may still **manually call** `await init()` if you want to control when initialization happens.
+
+Example:
+
+```ts
+const client = new MessageBoxClient({ walletClient, host: 'https://messagebox.babbage.systems' })
+
+// Manual init (optional but supported)
+await client.init()
+
+// Or just start sending — init will auto-run if needed
+await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
+```
 
 Example:
 
@@ -186,7 +200,7 @@ async function main() {
     walletClient: myWallet
   })
 
-  // 3) Initialize the client (required before using other methods)
+  // 3) (Optional) Initialize the client manually
   await msgBoxClient.init()
 
   // (Optional) Initialize a WebSocket connection (for real-time listening)
@@ -212,8 +226,8 @@ async function main() {
 main().catch(console.error)
 ```
 Note:
-- Even if you provide a host during construction, you must still call await `init()` before using the client.
-
+- If you do not manually call `await init()`, the client will automatically initialize itself when you use it.
+- You can still call `await init()` manually if you want explicit control.
 - `init()` ensures your identity is properly registered and discoverable via overlay advertisement if necessary.
 
 **Listening for Live Messages**  
@@ -502,7 +516,8 @@ Example
 
 ```ts
 const client = new MessageBoxClient({ walletClient, enableLogging: true })
-await client.init() // <- Required before using the client
+// Manual init is optional — client will auto-initialize if needed
+await client.init()
 await client.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
 ```
 
