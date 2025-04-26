@@ -54,8 +54,8 @@ git clone https://github.com/bitcoin-sv/messagebox-server.git
 cd messagebox-server
 cp .env.example .env
 npm install
-npm run start   # Starts LARS (overlay runtime)
-npm run dev     # Starts the MessageBox server
+npm run start    # Starts LARS (overlay service on http://localhost:8080)
+npm run dev      # Starts MessageBox Server (HTTP API on http://localhost:5001)
 ```
 
 2.	Ensure Environment Configuration
@@ -104,7 +104,7 @@ ________________________________________
 
 ### 3.1. MessageBoxClient Overview
 
-`MessageBoxClient` implements a **store-and-forward** architecture for P2P messages:
+`MessageBoxClient` implements a **store-and-forward** architecture for Peer-to-Peer messages:
 
 - **Store-and-forward:** Messages are posted to a central MessageBoxServer under a named "message box" (like an inbox).  
 - **Ephemeral storage:** Once the recipient acknowledges the messages, they are removed from the server.  
@@ -123,23 +123,25 @@ ________________________________________
 #### Important: Initialization Requirement
 
 **Important:**  
-Starting with version `@bsv/p2p@1.1.0` and later, the `MessageBoxClient` requires **explicit initialization** unless a `host` is provided during construction.
+Starting with version `@bsv/p2p@1.1.0` and later, the `MessageBoxClient` requires explicit initialization before use, regardless of whether a `host` is provided or not.
 
-When you create a MessageBoxClient, you have two options:
-
-- Provide a host immediately during construction → your client is immediately ready to use.
-
-- Omit the host → you must call await init() before calling any methods. init() will automatically anoint a host in the overlay network if needed.
+When you create a `MessageBoxClient`, you must call `await init()` before sending, receiving, or listening for messages.
+Initialization ensures that your client's identity is properly anointed on the overlay network and that internal services are ready.
 
 Example:
 
 ```ts
-const client = new MessageBoxClient({ walletClient })
-await client.init() // Must call init() first if no host was provided
+const client = new MessageBoxClient({ walletClient, host: 'https://messagebox.babbage.systems' })
+await client.init() // Must always call init() before using the client
 await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 ```
+The `init()` method will:
 
-The `init()` method will automatically anoint a host on the overlay if necessary, ensuring that your identity can receive messages from others.
+- Anoint your identity onto the overlay network if necessary.
+
+- Initialize the client’s internal identity and network information.
+
+- Ensure that your client can receive messages securely from peers.
 
 ---
 
@@ -184,21 +186,24 @@ async function main() {
     walletClient: myWallet
   })
 
+  // 3) Initialize the client (required before using other methods)
+  await msgBoxClient.init()
+
   // (Optional) Initialize a WebSocket connection (for real-time listening)
   await msgBoxClient.initializeConnection()
 
-  // 3) Send a message to John's "demo_inbox"
+  // 4) Send a message to John's "demo_inbox"
   await msgBoxClient.sendMessage({
     recipient: johnSmithKey,
     messageBox: 'demo_inbox',
     body: 'Hello John! This is a test message.'
   })
 
-  // 4) List messages in "demo_inbox"
+  // 5) List messages in "demo_inbox"
   const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
   console.log(messages[0].body) // --> "Hello John! This is a test message."
 
-  // 5) Acknowledge (and delete) them from the server
+  // 6) Acknowledge (and delete) them from the server
   await msgBoxClient.acknowledgeMessage({
     messageIds: messages.map(msg => msg.messageId.toString())
   })
@@ -206,11 +211,15 @@ async function main() {
 
 main().catch(console.error)
 ```
-Note: In this example, the `host` was provided at construction, so `init()` does not need to be called manually.
+Note:
+- Even if you provide a host during construction, you must still call await `init()` before using the client.
+
+- `init()` ensures your identity is properly registered and discoverable via overlay advertisement if necessary.
+
 **Listening for Live Messages**  
 If you want push-style message notifications instead of polling:
 
-```js
+```ts
 await msgBoxClient.listenForLiveMessages({
   messageBox: 'demo_inbox',
   onMessage: (msg) => {
@@ -274,6 +283,7 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 | [AcknowledgeMessageParams](#interface-acknowledgemessageparams) |
 | [EncryptedMessage](#interface-encryptedmessage) |
 | [ListMessagesParams](#interface-listmessagesparams) |
+| [MessageBoxClientOptions](#interface-messageboxclientoptions) |
 | [PeerMessage](#interface-peermessage) |
 | [SendMessageParams](#interface-sendmessageparams) |
 | [SendMessageResponse](#interface-sendmessageresponse) |
@@ -335,6 +345,61 @@ export interface ListMessagesParams {
     messageBox: string;
 }
 ```
+
+Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
+
+---
+###### Interface: MessageBoxClientOptions
+
+Configuration options for initializing a MessageBoxClient.
+
+```ts
+export interface MessageBoxClientOptions {
+    walletClient?: WalletClient;
+    host?: string;
+    enableLogging?: boolean;
+    networkPreset?: "local" | "mainnet" | "testnet";
+}
+```
+
+<details>
+
+<summary>Interface MessageBoxClientOptions Details</summary>
+
+####### Property enableLogging
+
+If true, enables detailed logging to the console.
+
+```ts
+enableLogging?: boolean
+```
+
+####### Property host
+
+Base URL of the MessageBox server.
+
+```ts
+host?: string
+```
+
+####### Property networkPreset
+
+Overlay network preset for routing resolution.
+
+```ts
+networkPreset?: "local" | "mainnet" | "testnet"
+```
+
+####### Property walletClient
+
+Wallet instance used for auth, identity, and encryption.
+If not provided, a new WalletClient will be created.
+
+```ts
+walletClient?: WalletClient
+```
+
+</details>
 
 Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 
@@ -436,23 +501,21 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 Example
 
 ```ts
-const mb = new MessageBoxClient({ walletClient, enableLogging: true })
-await mb.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
+const client = new MessageBoxClient({ walletClient, enableLogging: true })
+await client.init() // <- Required before using the client
+await client.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
 ```
 
 ```ts
 export class MessageBoxClient {
     public readonly authFetch: AuthFetch;
-    constructor({ host = "https://messagebox.babbage.systems", walletClient, enableLogging = false, networkPreset = "local" }: {
-        host?: string;
-        walletClient: WalletClient;
-        enableLogging?: boolean;
-        networkPreset?: "local" | "mainnet" | "testnet";
-    }) 
+    constructor(options: MessageBoxClientOptions = {}) 
+    async init(targetHost: string = this.host): Promise<void> 
     public getJoinedRooms(): Set<string> 
-    public getIdentityKey(): string 
+    public async getIdentityKey(): Promise<string> 
     public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined 
     async initializeConnection(): Promise<void> 
+    async resolveHostForRecipient(identityKey: string): Promise<string> 
     async joinRoom(messageBox: string): Promise<void> 
     async listenForLiveMessages({ onMessage, messageBox }: {
         onMessage: (message: PeerMessage) => void;
@@ -470,7 +533,7 @@ export class MessageBoxClient {
 }
 ```
 
-See also: [AcknowledgeMessageParams](#interface-acknowledgemessageparams), [ListMessagesParams](#interface-listmessagesparams), [PeerMessage](#interface-peermessage), [SendMessageParams](#interface-sendmessageparams), [SendMessageResponse](#interface-sendmessageresponse)
+See also: [AcknowledgeMessageParams](#interface-acknowledgemessageparams), [ListMessagesParams](#interface-listmessagesparams), [MessageBoxClientOptions](#interface-messageboxclientoptions), [PeerMessage](#interface-peermessage), [SendMessageParams](#interface-sendmessageparams), [SendMessageResponse](#interface-sendmessageresponse)
 
 <details>
 
@@ -479,18 +542,26 @@ See also: [AcknowledgeMessageParams](#interface-acknowledgemessageparams), [List
 ####### Constructor
 
 ```ts
-constructor({ host = "https://messagebox.babbage.systems", walletClient, enableLogging = false, networkPreset = "local" }: {
-    host?: string;
-    walletClient: WalletClient;
-    enableLogging?: boolean;
-    networkPreset?: "local" | "mainnet" | "testnet";
-}) 
+constructor(options: MessageBoxClientOptions = {}) 
 ```
+See also: [MessageBoxClientOptions](#interface-messageboxclientoptions)
 
 Argument Details
 
 + **options**
-  + Initialization options
+  + Initialization options for the MessageBoxClient.
+
+Example
+
+```ts
+const client = new MessageBoxClient({
+  host: 'https://messagebox.example',
+  walletClient,
+  enableLogging: true,
+  networkPreset: 'testnet'
+})
+await client.init()
+```
 
 ####### Method acknowledgeMessage
 
@@ -564,16 +635,12 @@ await client.disconnectWebSocket()
 ####### Method getIdentityKey
 
 ```ts
-public getIdentityKey(): string 
+public async getIdentityKey(): Promise<string> 
 ```
 
 Returns
 
 The identity public key of the user
-
-Throws
-
-If identity key has not been initialized yet
 
 ####### Method getJoinedRooms
 
@@ -584,6 +651,29 @@ public getJoinedRooms(): Set<string>
 Returns
 
 A set of currently joined WebSocket room IDs
+
+####### Method init
+
+```ts
+async init(targetHost: string = this.host): Promise<void> 
+```
+
+Argument Details
+
++ **targetHost**
+  + Optional host to set or override the default host.
+
+Throws
+
+If no valid host is provided, or anointing fails.
+
+Example
+
+```ts
+const client = new MessageBoxClient({ host: 'https://mybox.example', walletClient })
+await client.init()
+await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
+```
 
 ####### Method initializeConnection
 
@@ -689,6 +779,27 @@ await client.listenForLiveMessages({
 })
 ```
 
+####### Method resolveHostForRecipient
+
+```ts
+async resolveHostForRecipient(identityKey: string): Promise<string> 
+```
+
+Returns
+
+- A fully qualified host URL for the recipient's MessageBox server.
+
+Argument Details
+
++ **identityKey**
+  + The public identity key of the intended recipient.
+
+Example
+
+```ts
+const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
+```
+
 ####### Method sendLiveMessage
 
 ```ts
@@ -758,123 +869,6 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 ---
 
 <!--#endregion ts2md-api-merged-here-->
-
-```ts
-import { MessageBoxClient } from '@bsv/p2p'
-```
-
-#### Constructor
-
-```ts
-new MessageBoxClient({
-  host?: string,
-  walletClient: WalletClient
-})
-```
-
-- **host**:  (Optional) Base URL of the MessageBoxServer. If omitted, await `init()` must be called before using the client. Defaults to `https://messagebox.babbage.systems`.
-- **walletClient**: A [WalletClient](https://github.com/bitcoin-sv) instance for identity key and signing.
-
----
-
-#### `initializeConnection()`
-
-```ts
-await msgBoxClient.initializeConnection()
-```
-
-- Establishes a WebSocket connection to `host`.  
-- Authenticates with your wallet’s identity key.  
-
----
-
-#### `listenForLiveMessages({ messageBox, onMessage })`
-
-```ts
-await msgBoxClient.listenForLiveMessages({
-  messageBox: 'demo_inbox',
-  onMessage: (msg) => {
-    console.log('New message in "demo_inbox":', msg)
-  }
-})
-```
-
-- Joins a WebSocket "room" for the specified `messageBox`.
-- Executes `onMessage` callback whenever a new message arrives.
-
----
-
-#### `sendLiveMessage({ recipient, messageBox, body })`
-
-```ts
-const result = await msgBoxClient.sendLiveMessage({
-  recipient: johnSmithKey,
-  messageBox: 'demo_inbox',
-  body: 'Hello in real-time!'
-})
-```
-
-- Sends a message via WebSockets (falls back to HTTP if the socket is not connected).
-- **recipient**: Hex-encoded public key of the recipient.
-- **messageBox**: Name of the box (e.g., `"demo_inbox"`).
-- **body**: Message payload (string or object).
-
-Returns a `SendMessageResponse` with `{ status: 'success', messageId }` on success.
-
----
-
-#### `sendMessage({ recipient, messageBox, body })`
-
-```ts
-const response = await msgBoxClient.sendMessage({
-  recipient: johnSmithKey,
-  messageBox: 'demo_inbox',
-  body: 'Hello via HTTP!'
-})
-```
-
-- Sends the message via HTTP only.
-- **recipient**: Recipient's identity key.
-- **messageBox**: Name of the box.
-- **body**: Message content (string or object).
-
-Returns `{ status: 'success', messageId }` on success.
-
----
-
-#### `listMessages({ messageBox })`
-
-```ts
-const messages = await msgBoxClient.listMessages({ messageBox: 'demo_inbox' })
-```
-
-- Lists messages in the specified `messageBox`.
-- Returns an array of `PeerMessage`.
-
-```ts
-interface PeerMessage {
-  messageId: number;
-  body: string;
-  sender: string;
-  created_at: string;
-  updated_at: string;
-  acknowledged?: boolean;
-}
-```
-
----
-
-#### `acknowledgeMessage({ messageIds })`
-
-```ts
-await msgBoxClient.acknowledgeMessage({
-  messageIds: ['1234', '5678']
-})
-```
-
-- Acknowledges (and **deletes**) the specified messages from the server.
-- `messageIds`: Array of message IDs (as strings).
-
 ---
 
 ### 5.2. PeerPayClient API

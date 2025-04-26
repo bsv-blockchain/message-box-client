@@ -41,23 +41,25 @@ const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
 /**
  * @class MessageBoxClient
  * @description
- * Provides a secure client for sending and receiving messages through a MessageBoxServer instance,
- * with support for both HTTP and WebSocket communication. Messages are end-to-end encrypted using
- * AES-256-GCM per BRC-2 and BRC-42/43 key derivation with identity-based addressing.
+ * A secure client for sending and receiving authenticated, encrypted messages
+ * through a MessageBox server over HTTP and WebSocket.
  *
- * The client automatically handles:
- * - HMAC-based message ID generation for deduplication and verification
- * - Encrypts data using ECDH-derived AES keys via BRC-42/BRC-43 derivation
- * - Authenticated WebSocket channels with join/leave functionality
- * - Overlay-based host resolution and advertisement broadcasting
- * - Fallbacks to HTTP when WebSocket is unavailable or unacknowledged
+ * Core Features:
+ * - Identity-authenticated message transport (BRC-2)
+ * - AES-256-GCM end-to-end encryption with BRC-42/BRC-43 key derivation
+ * - HMAC-based message ID generation for deduplication
+ * - Live WebSocket messaging with room-based subscription management
+ * - Overlay network discovery and host advertisement broadcasting (SHIP protocol)
+ * - Fallback to HTTP messaging when WebSocket is unavailable
  *
- * This class is used in client-facing apps, bots, and services to communicate with
- * peers securely using their identity keys.
+ * **Important:**
+ * After constructing a MessageBoxClient instance, you **must call `await init()`**
+ * before using any other methods. This ensures proper host setup and advertisement.
  *
  * @example
- * const mb = new MessageBoxClient({ walletClient, enableLogging: true })
- * await mb.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
+ * const client = new MessageBoxClient({ walletClient, enableLogging: true })
+ * await client.init() // <- Required before using the client
+ * await client.sendMessage({ recipient, messageBox: 'payment_inbox', body: 'Hello world' })
  */
 export class MessageBoxClient {
   private host: string
@@ -72,11 +74,27 @@ export class MessageBoxClient {
 
   /**
    * @constructor
-   * @param {Object} options - Initialization options
-   * @param {string} [options.host] - Base URL of the MessageBox server (defaults to known mainnet/testnet hosts)
-   * @param {WalletClient} options.walletClient - Wallet instance used for auth, identity, and encryption
-   * @param {boolean} [options.enableLogging] - If true, enables detailed logging to the console
-   * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset] - Overlay network preset for routing resolution
+   * @param {Object} options - Initialization options for the MessageBoxClient.
+   * @param {string} [options.host] - The base URL of the MessageBox server. If omitted, defaults to mainnet/testnet hosts.
+   * @param {WalletClient} options.walletClient - Wallet instance used for authentication, signing, and encryption.
+   * @param {boolean} [options.enableLogging=false] - Whether to enable detailed debug logging to the console.
+   * @param {'local' | 'mainnet' | 'testnet'} [options.networkPreset='mainnet'] - Overlay network preset used for routing and advertisement lookup.
+   *
+   * @description
+   * Constructs a new MessageBoxClient.
+   *
+   * **Note:**
+   * Passing a `host` during construction *sets the default server*, but **does not complete setup**.
+   * You must still call `await init()` before sending or receiving messages.
+   *
+   * @example
+   * const client = new MessageBoxClient({
+   *   host: 'https://messagebox.example',
+   *   walletClient,
+   *   enableLogging: true,
+   *   networkPreset: 'testnet'
+   * })
+   * await client.init()
    */
   constructor (options: MessageBoxClientOptions = {}) {
     const {
@@ -107,14 +125,30 @@ export class MessageBoxClient {
   }
 
   /**
-   * Initializes the MessageBoxClient by setting or anointing a host.
-   * Must be called before using any other methods if no host was provided during construction.
+   * @method init
+   * @async
+   * @param {string} [targetHost] - Optional host to set or override the default host.
+   * @returns {Promise<void>}
    *
-   * @param {string} [targetHost] - Optional host to anoint and override the default host.
+   * @description
+   * Initializes the MessageBoxClient by setting or anointing a MessageBox host.
+   *
+   * - If the client was constructed with a host, it uses that unless a different targetHost is provided.
+   * - If no prior advertisement exists for the identity key and host, it automatically broadcasts a new advertisement.
+   * - After calling init(), the client becomes ready to send, receive, and acknowledge messages.
+   *
+   * This method **must be called** before using any other client methods.
+   *
+   * @throws {Error} If no valid host is provided, or anointing fails.
+   *
+   * @example
+   * const client = new MessageBoxClient({ host: 'https://mybox.example', walletClient })
+   * await client.init()
+   * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
   async init (targetHost: string = this.host): Promise<void> {
     const normalizedHost = targetHost?.trim()
-    if (!normalizedHost) {
+    if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
     }
 
@@ -131,10 +165,10 @@ export class MessageBoxClient {
     // 2. Check for any matching advertisements for the given host
     const [matchingHost] = await this.queryAdvertisements(identityKey, normalizedHost)
     // 3. If none our found, anoint this host
-    if (!matchingHost || matchingHost !== normalizedHost) {
+    if (matchingHost == null || matchingHost.trim() === '' || matchingHost !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
       const { txid } = await this.anointHost(normalizedHost)
-      if (!txid) {
+      if (txid == null || txid.trim() === '') {
         throw new Error('Failed to anoint host: No transaction ID returned')
       }
     }
@@ -142,7 +176,19 @@ export class MessageBoxClient {
   }
 
   /**
-   * Throws an error if the client has not been initialized yet.
+   * @method assertInitialized
+   * @private
+   * @throws {Error} If the client has not been initialized via `await init()`.
+   *
+   * @description
+   * Internal safeguard method.
+   *
+   * Ensures that the MessageBoxClient has completed initialization before performing sensitive operations
+   * like sending, receiving, or acknowledging messages.
+   *
+   * If `initialized = false`, or if `host` is not properly set, it throws an error.
+   *
+   * Used automatically by all public methods that require initialization.
    */
   private assertInitialized (): void {
     if (!this.initialized || this.host == null || this.host.trim() === '') {
@@ -349,7 +395,7 @@ export class MessageBoxClient {
     const hosts: string[] = []
     try {
       const query: Record<string, string> = { identityKey }
-      if (host) query.host = host
+      if (host != null && host.trim() !== '') query.host = host
 
       const result = await this.lookupResolver.query({
         service: 'ls_messagebox',
@@ -366,7 +412,7 @@ export class MessageBoxClient {
           const token = PushDrop.decode(script)
           const [, hostBuf] = token.fields
 
-          if (!hostBuf?.length) {
+          if (hostBuf == null || hostBuf.length === 0) {
             throw new Error('Empty host field')
           }
 
