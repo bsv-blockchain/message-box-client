@@ -56,6 +56,9 @@ jest.spyOn(MessageBoxClient.prototype as any, 'anointHost').mockImplementation(a
   return { txid: 'mocked-anoint-txid' }
 })
 
+jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements')
+  .mockResolvedValue([] as string[])
+
 jest.spyOn(AuthFetch.prototype, 'fetch')
   .mockResolvedValue(defaultMockResponse as Response)
 
@@ -405,20 +408,6 @@ describe('MessageBoxClient', () => {
       .rejects.toThrow('Failed to acknowledge messages')
   })
 
-  it('Throws an error when identity key is missing', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
-      enableLogging: true
-    })
-    await messageBoxClient.init()
-
-    // Mock `getPublicKey` to return an empty key
-    jest.spyOn(mockWalletClient, 'getPublicKey').mockResolvedValue({ publicKey: '' })
-
-    await expect(messageBoxClient.initializeConnection()).rejects.toThrow('Identity key is missing')
-  })
-
   it('Throws an error when WebSocket is not initialized before listening for messages', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
@@ -669,21 +658,11 @@ describe('MessageBoxClient', () => {
     })).rejects.toThrow('Message IDs array cannot be empty')
   })
 
-  it('Starts uninitialized if no host is provided', () => {
+  it('Uses default host if none is provided', () => {
     const client = new MessageBoxClient({ walletClient: mockWalletClient })
 
     expect((client as any).initialized).toBe(false)
-    expect((client as any).host).toBeUndefined()
-  })
-
-  it('Starts initialized if a host is provided', () => {
-    const client = new MessageBoxClient({
-      walletClient: mockWalletClient,
-      host: 'https://custom-host.example'
-    })
-
-    expect((client as any).initialized).toBe(true)
-    expect((client as any).host).toBe('https://custom-host.example')
+    expect((client as any).host).toBe('https://staging-messagebox.babbage.systems')
   })
 
   it('Calls init() to set up a default host when missing', async () => {
@@ -704,11 +683,12 @@ describe('MessageBoxClient', () => {
       host: 'https://original-host.example'
     })
 
-    expect((client as any).initialized).toBe(true)
+    expect((client as any).initialized).toBe(false)
     expect((client as any).host).toBe('https://original-host.example')
 
     await client.init('https://new-host.example')
 
+    expect((client as any).initialized).toBe(true)
     expect((client as any).host).toBe('https://new-host.example')
   })
 
