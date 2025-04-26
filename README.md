@@ -104,9 +104,9 @@ ________________________________________
 
 ### 3.1. MessageBoxClient Overview
 
-`MessageBoxClient` implements a **store-and-forward** architecture for Peer-to-Peer messages:
+`MessageBoxClient` uses a **store-and-forward** architecture for Peer-to-Peer messages:
 
-- **Store-and-forward:** Messages are posted to a central MessageBoxServer under a named "message box" (like an inbox).  
+- **Store-and-forward:** Messages are posted to a MessageBoxServer under a named "message box" (like an inbox).  
 - **Ephemeral storage:** Once the recipient acknowledges the messages, they are removed from the server.  
 - **Mutual authentication:** Ensures only authorized peers can read or post messages, using [AuthFetch](https://github.com/bitcoin-sv/authfetch) and [AuthSocketClient](https://github.com/bitcoin-sv/authsocket).  
 - **Flexible transport:** Supports both **WebSockets** (for live, push-style delivery) and **HTTP** (for polling or fallback).  
@@ -126,7 +126,7 @@ ________________________________________
 Starting with version `@bsv/p2p@1.1.0` and later, the `MessageBoxClient` requires explicit initialization before use, regardless of whether a `host` is provided or not.
 
 When you create a `MessageBoxClient`, you must call `await init()` before sending, receiving, or listening for messages.
-Initialization ensures that your client's identity is properly anointed on the overlay network and that internal services are ready.
+Initialization ensures the messagebox host where you want to receive messages has been properly registered on an overlay network. This registration ("anointing") makes your host discoverable, enabling others on the network to send messages to you.
 
 Example:
 
@@ -137,7 +137,7 @@ await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 ```
 The `init()` method will:
 
-- Anoint your identity onto the overlay network if necessary.
+- Anoint your messagebox host onto the overlay network if necessary.
 
 - Initialize the client’s internal identity and network information.
 
