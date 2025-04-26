@@ -91,7 +91,7 @@ export class MessageBoxClient {
         ? DEFAULT_MAINNET_HOST
         : DEFAULT_TESTNET_HOST
 
-    this.host = host?.trim() || defaultHost
+    this.host = host?.trim() ?? defaultHost
 
     this.walletClient = walletClient ?? new WalletClient()
     this.authFetch = new AuthFetch(this.walletClient)
@@ -801,9 +801,7 @@ export class MessageBoxClient {
         plaintext: Utils.toArray(typeof message.body === 'string' ? message.body : JSON.stringify(message.body), 'utf8')
       })
 
-      finalBody = {
-        encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext)
-      }
+      finalBody = JSON.stringify({ encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext) })
     }
 
     const requestBody = {
