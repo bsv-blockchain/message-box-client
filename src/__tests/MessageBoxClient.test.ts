@@ -710,4 +710,33 @@ describe('MessageBoxClient', () => {
     await new MessageBoxClient({ walletClient: mockWalletClient }).init()
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it('resolveHostForRecipient returns the first advertised host', async () => {
+    const client = new MessageBoxClient({
+      walletClient: mockWalletClient,
+      host: 'https://default.box'
+    })
+    await client.init()
+
+    // For this ONE call return two adverts – the first is selected
+    ; (MessageBoxClient.prototype as any).queryAdvertisements
+      .mockResolvedValueOnce(['https://peer.box', 'https://second.box'])
+
+    const result = await client.resolveHostForRecipient('02aa…deadbeef')
+    expect(result).toBe('https://peer.box')
+  })
+
+  it('resolveHostForRecipient falls back to this.host when no adverts exist', async () => {
+    const client = new MessageBoxClient({
+      walletClient: mockWalletClient,
+      host: 'https://default.box'
+    })
+    await client.init()
+    ; (MessageBoxClient.prototype as any).queryAdvertisements
+      .mockResolvedValueOnce([])
+
+    const result = await client.resolveHostForRecipient('03bb…cafef00d')
+
+    expect(result).toBe('https://default.box')
+  })
 })
