@@ -883,9 +883,6 @@ export class MessageBoxClient {
         body: JSON.stringify(requestBody)
       })
 
-      Logger.log('[MB CLIENT] Raw Response:', response)
-      Logger.log('[MB CLIENT] Response Body Used?', response.bodyUsed)
-
       if (response.bodyUsed) {
         throw new Error('[MB CLIENT ERROR] Response body has already been used!')
       }
