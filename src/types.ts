@@ -76,9 +76,9 @@ export interface SendMessageResponse {
 
 /**
  * Parameters for acknowledging messages in the system.
- * 
+ *
  * @interface AcknowledgeMessageParams
- * 
+ *
  * @property {string[]} messageIds - An array of message IDs to acknowledge.
  * @property {string} [host] - Optional host URL where the messages originated.
  */
