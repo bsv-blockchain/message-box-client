@@ -100,7 +100,7 @@ export class MessageBoxClient {
    * })
    * await client.init()
    */
-  constructor (options: MessageBoxClientOptions = {}) {
+  constructor(options: MessageBoxClientOptions = {}) {
     const {
       host,
       walletClient,
@@ -150,7 +150,7 @@ export class MessageBoxClient {
    * await client.init()
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
-  async init (targetHost: string = this.host): Promise<void> {
+  async init(targetHost: string = this.host): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
@@ -190,7 +190,7 @@ export class MessageBoxClient {
    *
    * Used automatically by all public methods that require initialization.
    */
-  private async assertInitialized (): Promise<void> {
+  private async assertInitialized(): Promise<void> {
     if (!this.initialized || this.host == null || this.host.trim() === '') {
       await this.init()
     }
@@ -203,7 +203,7 @@ export class MessageBoxClient {
    * Returns a live list of WebSocket rooms the client is subscribed to.
    * Useful for inspecting state or ensuring no duplicates are joined.
    */
-  public getJoinedRooms (): Set<string> {
+  public getJoinedRooms(): Set<string> {
     return this.joinedRooms
   }
 
@@ -214,7 +214,7 @@ export class MessageBoxClient {
  * Returns the client's identity key, used for signing, encryption, and addressing.
  * If not already loaded, it will fetch and cache it.
  */
-  public async getIdentityKey (): Promise<string> {
+  public async getIdentityKey(): Promise<string> {
     if (this.myIdentityKey != null && this.myIdentityKey.trim() !== '') {
       return this.myIdentityKey
     }
@@ -242,7 +242,7 @@ export class MessageBoxClient {
    * Note: Do not interact with the socket directly unless necessary.
    * Use the provided `sendLiveMessage`, `listenForLiveMessages`, and related methods.
    */
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
@@ -269,7 +269,7 @@ export class MessageBoxClient {
    * await mb.initializeConnection()
    * // WebSocket is now ready for use
    */
-  async initializeConnection (): Promise<void> {
+  async initializeConnection(): Promise<void> {
     await this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
@@ -370,7 +370,7 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  async resolveHostForRecipient (identityKey: string): Promise<string> {
+  async resolveHostForRecipient(identityKey: string): Promise<string> {
     const hosts = await this.queryAdvertisements(identityKey)
     if (hosts.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
@@ -388,7 +388,7 @@ export class MessageBoxClient {
    * @param host?        if passed, only look for adverts anointed at that host
    * @returns            0-length array if nothing valid was found
    */
-  private async queryAdvertisements (
+  private async queryAdvertisements(
     identityKey: string,
     host?: string
   ): Promise<string[]> {
@@ -446,7 +446,7 @@ export class MessageBoxClient {
    * await client.joinRoom('payment_inbox')
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
-  async joinRoom (messageBox: string): Promise<void> {
+  async joinRoom(messageBox: string): Promise<void> {
     await this.assertInitialized()
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
@@ -505,7 +505,7 @@ export class MessageBoxClient {
    *   onMessage: (msg) => console.log('Received live message:', msg)
    * })
    */
-  async listenForLiveMessages ({
+  async listenForLiveMessages({
     onMessage,
     messageBox
   }: {
@@ -599,7 +599,7 @@ export class MessageBoxClient {
    *   body: { amount: 1000 }
    * })
    */
-  async sendLiveMessage ({
+  async sendLiveMessage({
     recipient,
     messageBox,
     body,
@@ -737,7 +737,7 @@ export class MessageBoxClient {
    * @example
    * await client.leaveRoom('payment_inbox')
    */
-  async leaveRoom (messageBox: string): Promise<void> {
+  async leaveRoom(messageBox: string): Promise<void> {
     await this.assertInitialized()
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
@@ -769,7 +769,7 @@ export class MessageBoxClient {
    * @example
    * await client.disconnectWebSocket()
    */
-  async disconnectWebSocket (): Promise<void> {
+  async disconnectWebSocket(): Promise<void> {
     await this.assertInitialized()
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
@@ -807,7 +807,7 @@ export class MessageBoxClient {
    *   body: { type: 'ping' }
    * })
    */
-  async sendMessage (
+  async sendMessage(
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
@@ -935,7 +935,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost (host: string): Promise<{ txid: string }> {
+  async anointHost(host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
@@ -1026,24 +1026,66 @@ export class MessageBoxClient {
    * const messages = await client.listMessages({ messageBox: 'inbox' })
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
-  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
     await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const response = await this.authFetch.fetch(`${this.host}/listMessages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ messageBox })
-    })
+    let hosts: string[] = host ? [host] : []
+    if (hosts.length === 0) {
+      const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey())
+      hosts = Array.from(new Set([this.host, ...advertisedHosts]))
+    }
 
-    const parsedResponse = await response.json()
+    // Query each host in parallel
+    const fetchFromHost = async (host: string): Promise<PeerMessage[]> => {
+      try {
+        Logger.log(`[MB CLIENT] Listing messages from ${host}…`)
 
-    if (parsedResponse.status === 'error') {
-      throw new Error(parsedResponse.description)
+        const res = await this.authFetch.fetch(`${host}/listMessages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageBox })
+        })
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`)
+        }
+
+        const data = await res.json()
+        if (data.status === 'error') {
+          throw new Error(data.description ?? 'Unknown server error')
+        }
+
+        return data.messages as PeerMessage[]
+      } catch (err) {
+        // Do *not* abort the whole process when a single host fails
+        Logger.warn(`[MB CLIENT WARN] listMessages failed for ${host}:`, err)
+        return []
+      }
+    }
+
+    const settled = await Promise.allSettled(hosts.map(fetchFromHost))
+
+    // Aggregate & de‑duplicate messages from all successful hosts
+    const rawMessages: PeerMessage[] = []
+    for (const res of settled) {
+      if (res.status === 'fulfilled') {
+        rawMessages.push(...res.value)
+      }
+    }
+
+    if (rawMessages.length === 0) {
+      return []
+    }
+
+    const dedupMap = new Map<string, PeerMessage>()
+    for (const m of rawMessages) {
+      const key = m.messageId
+      if (!dedupMap.has(key)) {
+        dedupMap.set(key, m)
+      }
     }
 
     const tryParse = (raw: string): any => {
@@ -1054,38 +1096,53 @@ export class MessageBoxClient {
       }
     }
 
-    for (const message of parsedResponse.messages) {
+    const messages: PeerMessage[] = Array.from(dedupMap.values())
+
+    for (const message of messages) {
       try {
         const parsedBody: unknown =
-          typeof message.body === 'string'
-            ? tryParse(message.body)
-            : message.body
+          typeof message.body === 'string' ? tryParse(message.body) : message.body
 
         if (
           parsedBody != null &&
           typeof parsedBody === 'object' &&
           typeof (parsedBody as any).encryptedMessage === 'string'
         ) {
-          Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
+          Logger.log(
+            `[MB CLIENT] Decrypting message from ${String(message.sender)}…`
+          )
+
           const decrypted = await this.walletClient.decrypt({
             protocolID: [1, 'messagebox'],
             keyID: '1',
             counterparty: message.sender,
-            ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
+            ciphertext: Utils.toArray(
+              (parsedBody as any).encryptedMessage,
+              'base64'
+            )
           })
 
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          message.body = parsedBody
+          message.body = parsedBody as string
         }
       } catch (err) {
-        Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt message in list:', err)
+        Logger.error(
+          '[MB CLIENT ERROR] Failed to parse or decrypt message in list:',
+          err
+        )
         message.body = '[Error: Failed to decrypt or parse message]'
       }
     }
 
-    return parsedResponse.messages
+    // Sort newest‑first for a deterministic order
+    messages.sort(
+      (a, b) =>
+        Number((b as any).timestamp ?? 0) - Number((a as any).timestamp ?? 0)
+    )
+
+    return messages
   }
 
   /**
@@ -1110,28 +1167,60 @@ export class MessageBoxClient {
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds, host }: AcknowledgeMessageParams): Promise<string> {
     await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
 
-    Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
+    Logger.log(`[MB CLIENT] Acknowledging messages ${JSON.stringify(messageIds)}…`)
 
-    const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ messageIds })
-    })
-
-    const parsedAcknowledged = await acknowledged.json()
-
-    if (parsedAcknowledged.status === 'error') {
-      throw new Error(parsedAcknowledged.description)
+    let hosts: string[] = host ? [host] : []
+    if (hosts.length === 0) {
+      // 1. Determine all hosts (advertised + default)
+      const identityKey = await this.getIdentityKey()
+      const advertisedHosts = await this.queryAdvertisements(identityKey)
+      hosts = Array.from(new Set([this.host, ...advertisedHosts]))
     }
 
-    return parsedAcknowledged.status
+    // 2. Dispatch parallel acknowledge requests
+    const ackFromHost = async (host: string): Promise<string | null> => {
+      try {
+        const res = await this.authFetch.fetch(`${host}/acknowledgeMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageIds })
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        if (data.status === 'error') throw new Error(data.description)
+        Logger.log(`[MB CLIENT] Acknowledged on ${host}`)
+        return data.status as string
+      } catch (err) {
+        Logger.warn(`[MB CLIENT WARN] acknowledgeMessage failed for ${host}:`, err)
+        return null
+      }
+    }
+
+    const settled = await Promise.allSettled(hosts.map(ackFromHost))
+
+    const successes = settled.filter(
+      (r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled'
+    )
+
+    const firstSuccess = successes.find(s => s.value !== null)?.value
+
+    if (firstSuccess) {
+      return firstSuccess
+    }
+
+    // No host accepted the acknowledgement
+    const errs: any[] = []
+    for (const r of settled) {
+      if (r.status === 'rejected') errs.push(r.reason)
+    }
+    throw new Error(
+      `Failed to acknowledge messages on all hosts: ${errs.map(e => String(e)).join('; ')}`
+    )
   }
 }

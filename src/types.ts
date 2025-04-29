@@ -84,6 +84,7 @@ export interface SendMessageResponse {
  */
 export interface AcknowledgeMessageParams {
   messageIds: string[]
+  host?: string
 }
 
 /**
@@ -96,6 +97,7 @@ export interface AcknowledgeMessageParams {
  */
 export interface ListMessagesParams {
   messageBox: string
+  host?: string
 }
 
 /**
