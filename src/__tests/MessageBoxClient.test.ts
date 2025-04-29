@@ -396,7 +396,9 @@ describe('MessageBoxClient', () => {
     await client.init()
 
     // One failing replica, one healthy replica
-    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue(['https://replica'])
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([{
+      host: 'https://replica'
+    }])
 
     jest.spyOn(client.authFetch, 'fetch')
       .mockImplementation(async url =>
@@ -721,7 +723,9 @@ describe('MessageBoxClient', () => {
   })
 
   it('does not anoint when advert already exists', async () => {
-    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue(['https://messagebox.babbage.systems'])
+    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue([{
+      host: 'https://messagebox.babbage.systems'
+    }])
     const spy = jest.spyOn(MessageBoxClient.prototype as any, 'anointHost')
     await new MessageBoxClient({ walletClient: mockWalletClient }).init()
     expect(spy).not.toHaveBeenCalled()
@@ -736,7 +740,8 @@ describe('MessageBoxClient', () => {
 
     // For this ONE call return two adverts – the first is selected
     ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce(['https://peer.box', 'https://second.box'])
+      .mockResolvedValueOnce([
+        { host: 'https://peer.box' }, { host: 'https://second.box' }])
 
     const result = await client.resolveHostForRecipient('02aa…deadbeef')
     expect(result).toBe('https://peer.box')

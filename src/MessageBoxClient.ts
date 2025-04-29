@@ -29,7 +29,10 @@ import {
   TopicBroadcaster,
   Utils,
   Transaction,
-  PushDrop
+  PushDrop,
+  BEEF,
+  LockingScript,
+  HexString
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -37,6 +40,14 @@ import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, Message
 
 const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
 const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
+
+interface AdvertisementToken {
+  host: string
+  txid: HexString
+  outputIndex: number
+  lockingScript: LockingScript
+  beef: BEEF
+}
 
 /**
  * @class MessageBoxClient
@@ -167,9 +178,9 @@ export class MessageBoxClient {
     // 1. Get our identity key
     const identityKey = await this.getIdentityKey()
     // 2. Check for any matching advertisements for the given host
-    const [matchingHost] = await this.queryAdvertisements(identityKey, normalizedHost)
+    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost)
     // 3. If none our found, anoint this host
-    if (matchingHost == null || matchingHost.trim() === '' || matchingHost !== normalizedHost) {
+    if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
       const { txid } = await this.anointHost(normalizedHost)
       if (txid == null || txid.trim() === '') {
@@ -371,13 +382,13 @@ export class MessageBoxClient {
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
   async resolveHostForRecipient (identityKey: string): Promise<string> {
-    const hosts = await this.queryAdvertisements(identityKey)
-    if (hosts.length === 0) {
+    const advertisementTokens = await this.queryAdvertisements(identityKey)
+    if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
       return this.host
     }
     // Return the first host found
-    return hosts[0]
+    return advertisementTokens[0].host
   }
 
   /**
@@ -388,13 +399,13 @@ export class MessageBoxClient {
    * @param host?        if passed, only look for adverts anointed at that host
    * @returns            0-length array if nothing valid was found
    */
-  private async queryAdvertisements (
-    identityKey: string,
+  async queryAdvertisements (
+    identityKey?: string,
     host?: string
-  ): Promise<string[]> {
-    const hosts: string[] = []
+  ): Promise<AdvertisementToken[]> {
+    const hosts: AdvertisementToken[] = []
     try {
-      const query: Record<string, string> = { identityKey }
+      const query: Record<string, string> = { identityKey: identityKey ?? await this.getIdentityKey() }
       if (host != null && host.trim() !== '') query.host = host
 
       const result = await this.lookupResolver.query({
@@ -416,7 +427,13 @@ export class MessageBoxClient {
             throw new Error('Empty host field')
           }
 
-          hosts.push(Utils.toUTF8(hostBuf))
+          hosts.push({
+            host: Utils.toUTF8(hostBuf),
+            txid: tx.id('hex'),
+            outputIndex: output.outputIndex,
+            lockingScript: script,
+            beef: output.beef
+          })
         } catch {
           // skip any malformed / non-PushDrop outputs
         }
@@ -1001,6 +1018,91 @@ export class MessageBoxClient {
   }
 
   /**
+   * @method revokeHostAdvertisement
+   * @async
+   * @param {AdvertisementToken} advertisementToken - The advertisement token containing the messagebox host to revoke.
+   * @returns {Promise<{ txid: string }>} - The transaction ID of the revocation broadcast to the overlay network.
+   *
+   * @description
+   * Broadcasts a signed revocation transaction indicating the advertisement token should be removed
+   * and no longer tracked by lookup services.
+   *
+   * @example
+   * const { txid } = await client.revokeHost('https://my-messagebox.io')
+   */
+  async revokeHostAdvertisement (advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
+    Logger.log('[MB CLIENT] Starting revokeHost...')
+    const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
+    try {
+      const { signableTransaction } = await this.walletClient.createAction({
+        description: 'Revoke MessageBox host advertisement',
+        inputBEEF: advertisementToken.beef,
+        inputs: [
+          {
+            outpoint,
+            unlockingScriptLength: 73,
+            inputDescription: 'Revoking host advertisement token'
+          }
+        ]
+      })
+
+      if (signableTransaction === undefined) {
+        throw new Error('Failed to create signable transaction.')
+      }
+
+      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
+
+      // Prepare the unlocker
+      const pushdrop = new PushDrop(this.walletClient)
+      const unlocker = await pushdrop.unlock(
+        [1, 'messagebox advertisement'],
+        '1',
+        'anyone',
+        'all',
+        false,
+        advertisementToken.outputIndex,
+        advertisementToken.lockingScript
+      )
+
+      // Convert to Transaction, apply signature
+      const finalUnlockScript = await unlocker.sign(partialTx, advertisementToken.outputIndex)
+
+      // Complete signing with the final unlock script
+      const { tx: signedTx } = await this.walletClient.signAction({
+        reference: signableTransaction.reference,
+        spends: {
+          [advertisementToken.outputIndex]: {
+            unlockingScript: finalUnlockScript.toHex()
+          }
+        },
+        options: {
+          acceptDelayedBroadcast: false
+        }
+      })
+
+      if (signedTx === undefined) {
+        throw new Error('Failed to finalize the transaction signature.')
+      }
+
+      const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
+        networkPreset: this.networkPreset
+      })
+
+      const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(signedTx))
+      Logger.log('[MB CLIENT] Revocation broadcast succeeded. TXID:', result.txid)
+
+      if (typeof result.txid !== 'string') {
+        throw new Error('Revoke failed: broadcast did not return a txid')
+      }
+
+      return { txid: result.txid }
+    } catch (err) {
+      Logger.error('[MB CLIENT ERROR] revokeHost threw:', err)
+      throw err
+    }
+  }
+
+  /**
    * @method listMessages
    * @async
    * @param {ListMessagesParams} params - Contains the name of the messageBox to read from.
@@ -1032,7 +1134,7 @@ export class MessageBoxClient {
     let hosts: string[] = host ? [host] : []
     if (hosts.length === 0) {
       const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey())
-      hosts = Array.from(new Set([this.host, ...advertisedHosts]))
+      hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
     // Query each host in parallel
@@ -1175,7 +1277,7 @@ export class MessageBoxClient {
       // 1. Determine all hosts (advertised + default)
       const identityKey = await this.getIdentityKey()
       const advertisedHosts = await this.queryAdvertisements(identityKey)
-      hosts = Array.from(new Set([this.host, ...advertisedHosts]))
+      hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
     // 2. Dispatch parallel acknowledge requests
