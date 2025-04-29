@@ -1131,7 +1131,7 @@ export class MessageBoxClient {
       throw new Error('MessageBox cannot be empty')
     }
 
-    let hosts: string[] = host ? [host] : []
+    let hosts: string[] = host != null ? [host] : []
     if (hosts.length === 0) {
       const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey())
       hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
@@ -1272,7 +1272,7 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Acknowledging messages ${JSON.stringify(messageIds)}…`)
 
-    let hosts: string[] = host ? [host] : []
+    let hosts: string[] = host != null ? [host] : []
     if (hosts.length === 0) {
       // 1. Determine all hosts (advertised + default)
       const identityKey = await this.getIdentityKey()
@@ -1305,9 +1305,9 @@ export class MessageBoxClient {
       (r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled'
     )
 
-    const firstSuccess = successes.find(s => s.value !== null)?.value
+    const firstSuccess = successes.find(s => s.value != null)?.value
 
-    if (firstSuccess) {
+    if (firstSuccess != null) {
       return firstSuccess
     }
 

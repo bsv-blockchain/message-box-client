@@ -402,6 +402,7 @@ describe('MessageBoxClient', () => {
 
     jest.spyOn(client.authFetch, 'fetch')
       .mockImplementation(async url =>
+        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
         url.startsWith('https://primary')
           ? await Promise.resolve({
             ok: false,
