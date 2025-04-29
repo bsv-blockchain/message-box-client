@@ -1011,7 +1011,7 @@ export class MessageBoxClient {
    *
    * @description
    * Retrieves all messages from the specified `messageBox` assigned to the current identity key.
-   * Messages are fetched from the resolved overlay host (via LookupResolver) or the default host if no advertisement is found.
+   * Unless a host override is provided, messages are fetched from the resolved overlay host (via LookupResolver) or the default host if no advertisement is found.
    *
    * Each message is:
    * - Parsed and, if encrypted, decrypted using AES-256-GCM via BRC-2-compliant ECDH key derivation and symmetric encryption.
@@ -1042,51 +1042,50 @@ export class MessageBoxClient {
     const fetchFromHost = async (host: string): Promise<PeerMessage[]> => {
       try {
         Logger.log(`[MB CLIENT] Listing messages from ${host}…`)
-
         const res = await this.authFetch.fetch(`${host}/listMessages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messageBox })
         })
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText}`)
-        }
-
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
         const data = await res.json()
-        if (data.status === 'error') {
-          throw new Error(data.description ?? 'Unknown server error')
-        }
-
+        if (data.status === 'error') throw new Error(data.description ?? 'Unknown server error')
         return data.messages as PeerMessage[]
       } catch (err) {
-        // Do *not* abort the whole process when a single host fails
-        Logger.warn(`[MB CLIENT WARN] listMessages failed for ${host}:`, err)
-        return []
+        Logger.log(`[MB CLIENT DEBUG] listMessages failed for ${host}:`, err)
+        throw err // re-throw to be caught in the settled promise
       }
     }
 
     const settled = await Promise.allSettled(hosts.map(fetchFromHost))
 
-    // Aggregate & de‑duplicate messages from all successful hosts
-    const rawMessages: PeerMessage[] = []
-    for (const res of settled) {
-      if (res.status === 'fulfilled') {
-        rawMessages.push(...res.value)
+    // 3. Split successes / failures
+    const messagesByHost: PeerMessage[][] = []
+    const errors: any[] = []
+
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        messagesByHost.push(r.value)
+      } else {
+        errors.push(r.reason)
       }
     }
 
-    if (rawMessages.length === 0) {
-      return []
+    // 4. If *every* host failed – throw aggregated error
+    if (messagesByHost.length === 0) {
+      throw new Error(`Failed to retrieve messages from any host`)
     }
 
+    // 5. Merge & de‑duplicate (first‑seen wins)
     const dedupMap = new Map<string, PeerMessage>()
-    for (const m of rawMessages) {
-      const key = m.messageId
-      if (!dedupMap.has(key)) {
-        dedupMap.set(key, m)
+    for (const messageList of messagesByHost) {
+      for (const m of messageList) {
+        if (!dedupMap.has(m.messageId)) dedupMap.set(m.messageId, m)
       }
     }
+
+    // 6. Early‑out: no messages but at least one host succeeded → []
+    if (dedupMap.size === 0) return []
 
     const tryParse = (raw: string): any => {
       try {
@@ -1152,15 +1151,14 @@ export class MessageBoxClient {
    * @returns {Promise<string>} - A string indicating the result, typically `'success'`.
    *
    * @description
-   * Notifies the MessageBox server (or overlay-resolved host) that one or more messages have been
+   * Notifies the MessageBox server(s) that one or more messages have been
    * successfully received and processed by the client. Once acknowledged, these messages are removed
-   * from the recipient's inbox on the server.
+   * from the recipient's inbox on the server(s).
    *
    * This operation is essential for proper message lifecycle management and prevents duplicate
    * processing or delivery.
    *
-   * Acknowledgment requires authentication with the local identity key and supports overlay routing
-   * to the appropriate server by resolving advertisements for the identity.
+   * Acknowledgment supports providing a host override, or will use overlay routing to find the appropriate server the received the given message.
    *
    * @throws {Error} If the message ID array is missing or empty, or if the request to the server fails.
    *

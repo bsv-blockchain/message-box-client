@@ -107,8 +107,8 @@ describe('MessageBoxClient', () => {
     body: JSON.stringify({
       status: 200,
       messages: [
-        { sender: 'mockSender', messageBoxId: 42, body: {} },
-        { sender: 'mockSender', messageBoxId: 43, body: {} }
+        { sender: 'mockSender', messageId: 42, body: {} },
+        { sender: 'mockSender', messageId: 43, body: {} }
       ]
     })
   }
@@ -168,11 +168,11 @@ describe('MessageBoxClient', () => {
     // Bypass the real connection logic
     jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
 
-    // Manually set identity key
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      // Manually set identity key
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
-    // Simulate WebSocket not initialized
-    ; (messageBoxClient as any).socket = null
+      // Simulate WebSocket not initialized
+      ; (messageBoxClient as any).socket = null
 
     // Expect it to fall back to HTTP and succeed
     const result = await messageBoxClient.sendLiveMessage({
@@ -282,7 +282,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => ({
         status: 'success',
@@ -309,7 +309,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_LIST_AND_READ_RESULT.body),
@@ -319,6 +319,8 @@ describe('MessageBoxClient', () => {
     } as unknown as Response)
 
     const result = await messageBoxClient.listMessages({ messageBox: 'test_inbox' })
+
+    console.log('result', result)
 
     expect(result).toEqual(JSON.parse(VALID_LIST_AND_READ_RESULT.body).messages)
   })
@@ -330,7 +332,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_ACK_RESULT.body),
@@ -352,7 +354,7 @@ describe('MessageBoxClient', () => {
     })
     await messageBoxClient.init()
 
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -370,23 +372,49 @@ describe('MessageBoxClient', () => {
     })).rejects.toThrow('Message sending failed: HTTP 500 - Internal Server Error')
   })
 
-  it('Throws an error when listMessages() API fails', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
-      enableLogging: true
-    })
-    await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+  it('throws when every host fails', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, host: 'https://primary', enableLogging: false })
+    await client.init()
 
-    jest.spyOn(messageBoxClient.authFetch, 'fetch')
-      .mockResolvedValue({
-        status: 500,
-        json: async () => ({ status: 'error', description: 'Failed to fetch messages' })
-      } as unknown as Response)
+    // Pretend there are no advertised replicas
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([])
 
-    await expect(messageBoxClient.listMessages({ messageBox: 'test_inbox' }))
-      .rejects.toThrow('Failed to fetch messages')
+    // Primary host responds with 500
+    jest.spyOn(client.authFetch, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({ status: 'error', description: 'DB down' })
+    } as unknown as Response)
+
+    await expect(client.listMessages({ messageBox: 'inbox' }))
+      .rejects.toThrow('Failed to retrieve messages from any host')
+  })
+
+  it('returns [] when at least one host succeeds but has no messages', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, host: 'https://primary', enableLogging: false })
+    await client.init()
+
+    // One failing replica, one healthy replica
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue(['https://replica'])
+
+    jest.spyOn(client.authFetch, 'fetch')
+      .mockImplementation(url =>
+        url.startsWith('https://primary')
+          ? Promise.resolve({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            json: async () => ({ status: 'error', description: 'DB down' })
+          } as unknown as Response)
+          : Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ status: 'success', messages: [] })
+          } as unknown as Response)
+      )
+
+    await expect(client.listMessages({ messageBox: 'inbox' })).resolves.toEqual([])
   })
 
   it('Throws an error when acknowledgeMessage() API fails', async () => {
@@ -396,7 +424,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -416,8 +444,8 @@ describe('MessageBoxClient', () => {
     })
     await messageBoxClient.init()
 
-    // Stub out the identity key to pass that check
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      // Stub out the identity key to pass that check
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     // Stub out joinRoom to throw like the real one might
     jest.spyOn(messageBoxClient, 'joinRoom').mockRejectedValue(new Error('WebSocket connection not initialized'))
@@ -706,9 +734,9 @@ describe('MessageBoxClient', () => {
     })
     await client.init()
 
-    // For this ONE call return two adverts – the first is selected
-    ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce(['https://peer.box', 'https://second.box'])
+      // For this ONE call return two adverts – the first is selected
+      ; (MessageBoxClient.prototype as any).queryAdvertisements
+        .mockResolvedValueOnce(['https://peer.box', 'https://second.box'])
 
     const result = await client.resolveHostForRecipient('02aa…deadbeef')
     expect(result).toBe('https://peer.box')
@@ -720,8 +748,8 @@ describe('MessageBoxClient', () => {
       host: 'https://default.box'
     })
     await client.init()
-    ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce([])
+      ; (MessageBoxClient.prototype as any).queryAdvertisements
+        .mockResolvedValueOnce([])
 
     const result = await client.resolveHostForRecipient('03bb…cafef00d')
 
