@@ -107,8 +107,8 @@ describe('MessageBoxClient', () => {
     body: JSON.stringify({
       status: 200,
       messages: [
-        { sender: 'mockSender', messageBoxId: 42, body: {} },
-        { sender: 'mockSender', messageBoxId: 43, body: {} }
+        { sender: 'mockSender', messageId: 42, body: {} },
+        { sender: 'mockSender', messageId: 43, body: {} }
       ]
     })
   }
@@ -320,6 +320,7 @@ describe('MessageBoxClient', () => {
 
     const result = await messageBoxClient.listMessages({ messageBox: 'test_inbox' })
 
+
     expect(result).toEqual(JSON.parse(VALID_LIST_AND_READ_RESULT.body).messages)
   })
 
@@ -370,23 +371,52 @@ describe('MessageBoxClient', () => {
     })).rejects.toThrow('Message sending failed: HTTP 500 - Internal Server Error')
   })
 
-  it('Throws an error when listMessages() API fails', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
-      enableLogging: true
-    })
-    await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+  it('throws when every host fails', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, host: 'https://primary', enableLogging: false })
+    await client.init()
 
-    jest.spyOn(messageBoxClient.authFetch, 'fetch')
-      .mockResolvedValue({
-        status: 500,
-        json: async () => ({ status: 'error', description: 'Failed to fetch messages' })
-      } as unknown as Response)
+    // Pretend there are no advertised replicas
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([])
 
-    await expect(messageBoxClient.listMessages({ messageBox: 'test_inbox' }))
-      .rejects.toThrow('Failed to fetch messages')
+    // Primary host responds with 500
+    jest.spyOn(client.authFetch, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({ status: 'error', description: 'DB down' })
+    } as unknown as Response)
+
+    await expect(client.listMessages({ messageBox: 'inbox' }))
+      .rejects.toThrow('Failed to retrieve messages from any host')
+  })
+
+  it('returns [] when at least one host succeeds but has no messages', async () => {
+    const client = new MessageBoxClient({ walletClient: mockWalletClient, host: 'https://primary', enableLogging: false })
+    await client.init()
+
+    // One failing replica, one healthy replica
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([{
+      host: 'https://replica'
+    }])
+
+    jest.spyOn(client.authFetch, 'fetch')
+      .mockImplementation(async url =>
+        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+        url.startsWith('https://primary')
+          ? await Promise.resolve({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            json: async () => ({ status: 'error', description: 'DB down' })
+          } as unknown as Response)
+          : await Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ status: 'success', messages: [] })
+          } as unknown as Response)
+      )
+
+    await expect(client.listMessages({ messageBox: 'inbox' })).resolves.toEqual([])
   })
 
   it('Throws an error when acknowledgeMessage() API fails', async () => {
@@ -693,7 +723,9 @@ describe('MessageBoxClient', () => {
   })
 
   it('does not anoint when advert already exists', async () => {
-    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue(['https://messagebox.babbage.systems'])
+    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue([{
+      host: 'https://messagebox.babbage.systems'
+    }])
     const spy = jest.spyOn(MessageBoxClient.prototype as any, 'anointHost')
     await new MessageBoxClient({ walletClient: mockWalletClient }).init()
     expect(spy).not.toHaveBeenCalled()
@@ -708,7 +740,8 @@ describe('MessageBoxClient', () => {
 
     // For this ONE call return two adverts – the first is selected
     ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce(['https://peer.box', 'https://second.box'])
+      .mockResolvedValueOnce([
+        { host: 'https://peer.box' }, { host: 'https://second.box' }])
 
     const result = await client.resolveHostForRecipient('02aa…deadbeef')
     expect(result).toBe('https://peer.box')

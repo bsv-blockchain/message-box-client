@@ -75,27 +75,27 @@ export interface SendMessageResponse {
 }
 
 /**
- * Defines the structure of a request to acknowledge messages.
+ * Parameters for acknowledging messages in the system.
  *
- * @example
- * {
- *   messageIds: ["abc123", "def456"]
- * }
+ * @interface AcknowledgeMessageParams
+ *
+ * @property {string[]} messageIds - An array of message IDs to acknowledge.
+ * @property {string} [host] - Optional host URL where the messages originated.
  */
 export interface AcknowledgeMessageParams {
   messageIds: string[]
+  host?: string
 }
 
 /**
- * Defines the structure of a request to list messages.
+ * Parameters for listing messages in a message box.
  *
- * @example
- * {
- *   messageBox: "payment_inbox"
- * }
+ * @property messageBox - The identifier of the message box to retrieve messages from.
+ * @property host - (Optional) The host URL to connect to for retrieving messages.
  */
 export interface ListMessagesParams {
   messageBox: string
+  host?: string
 }
 
 /**

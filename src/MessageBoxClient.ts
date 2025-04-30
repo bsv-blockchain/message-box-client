@@ -29,7 +29,10 @@ import {
   TopicBroadcaster,
   Utils,
   Transaction,
-  PushDrop
+  PushDrop,
+  BEEF,
+  LockingScript,
+  HexString
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -37,6 +40,14 @@ import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, Message
 
 const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
 const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
+
+interface AdvertisementToken {
+  host: string
+  txid: HexString
+  outputIndex: number
+  lockingScript: LockingScript
+  beef: BEEF
+}
 
 /**
  * @class MessageBoxClient
@@ -167,9 +178,9 @@ export class MessageBoxClient {
     // 1. Get our identity key
     const identityKey = await this.getIdentityKey()
     // 2. Check for any matching advertisements for the given host
-    const [matchingHost] = await this.queryAdvertisements(identityKey, normalizedHost)
+    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost)
     // 3. If none our found, anoint this host
-    if (matchingHost == null || matchingHost.trim() === '' || matchingHost !== normalizedHost) {
+    if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
       const { txid } = await this.anointHost(normalizedHost)
       if (txid == null || txid.trim() === '') {
@@ -371,13 +382,13 @@ export class MessageBoxClient {
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
   async resolveHostForRecipient (identityKey: string): Promise<string> {
-    const hosts = await this.queryAdvertisements(identityKey)
-    if (hosts.length === 0) {
+    const advertisementTokens = await this.queryAdvertisements(identityKey)
+    if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
       return this.host
     }
     // Return the first host found
-    return hosts[0]
+    return advertisementTokens[0].host
   }
 
   /**
@@ -388,13 +399,13 @@ export class MessageBoxClient {
    * @param host?        if passed, only look for adverts anointed at that host
    * @returns            0-length array if nothing valid was found
    */
-  private async queryAdvertisements (
-    identityKey: string,
+  async queryAdvertisements (
+    identityKey?: string,
     host?: string
-  ): Promise<string[]> {
-    const hosts: string[] = []
+  ): Promise<AdvertisementToken[]> {
+    const hosts: AdvertisementToken[] = []
     try {
-      const query: Record<string, string> = { identityKey }
+      const query: Record<string, string> = { identityKey: identityKey ?? await this.getIdentityKey() }
       if (host != null && host.trim() !== '') query.host = host
 
       const result = await this.lookupResolver.query({
@@ -416,7 +427,13 @@ export class MessageBoxClient {
             throw new Error('Empty host field')
           }
 
-          hosts.push(Utils.toUTF8(hostBuf))
+          hosts.push({
+            host: Utils.toUTF8(hostBuf),
+            txid: tx.id('hex'),
+            outputIndex: output.outputIndex,
+            lockingScript: script,
+            beef: output.beef
+          })
         } catch {
           // skip any malformed / non-PushDrop outputs
         }
@@ -883,9 +900,6 @@ export class MessageBoxClient {
         body: JSON.stringify(requestBody)
       })
 
-      Logger.log('[MB CLIENT] Raw Response:', response)
-      Logger.log('[MB CLIENT] Response Body Used?', response.bodyUsed)
-
       if (response.bodyUsed) {
         throw new Error('[MB CLIENT ERROR] Response body has already been used!')
       }
@@ -1004,6 +1018,91 @@ export class MessageBoxClient {
   }
 
   /**
+   * @method revokeHostAdvertisement
+   * @async
+   * @param {AdvertisementToken} advertisementToken - The advertisement token containing the messagebox host to revoke.
+   * @returns {Promise<{ txid: string }>} - The transaction ID of the revocation broadcast to the overlay network.
+   *
+   * @description
+   * Broadcasts a signed revocation transaction indicating the advertisement token should be removed
+   * and no longer tracked by lookup services.
+   *
+   * @example
+   * const { txid } = await client.revokeHost('https://my-messagebox.io')
+   */
+  async revokeHostAdvertisement (advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
+    Logger.log('[MB CLIENT] Starting revokeHost...')
+    const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
+    try {
+      const { signableTransaction } = await this.walletClient.createAction({
+        description: 'Revoke MessageBox host advertisement',
+        inputBEEF: advertisementToken.beef,
+        inputs: [
+          {
+            outpoint,
+            unlockingScriptLength: 73,
+            inputDescription: 'Revoking host advertisement token'
+          }
+        ]
+      })
+
+      if (signableTransaction === undefined) {
+        throw new Error('Failed to create signable transaction.')
+      }
+
+      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
+
+      // Prepare the unlocker
+      const pushdrop = new PushDrop(this.walletClient)
+      const unlocker = await pushdrop.unlock(
+        [1, 'messagebox advertisement'],
+        '1',
+        'anyone',
+        'all',
+        false,
+        advertisementToken.outputIndex,
+        advertisementToken.lockingScript
+      )
+
+      // Convert to Transaction, apply signature
+      const finalUnlockScript = await unlocker.sign(partialTx, advertisementToken.outputIndex)
+
+      // Complete signing with the final unlock script
+      const { tx: signedTx } = await this.walletClient.signAction({
+        reference: signableTransaction.reference,
+        spends: {
+          [advertisementToken.outputIndex]: {
+            unlockingScript: finalUnlockScript.toHex()
+          }
+        },
+        options: {
+          acceptDelayedBroadcast: false
+        }
+      })
+
+      if (signedTx === undefined) {
+        throw new Error('Failed to finalize the transaction signature.')
+      }
+
+      const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
+        networkPreset: this.networkPreset
+      })
+
+      const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(signedTx))
+      Logger.log('[MB CLIENT] Revocation broadcast succeeded. TXID:', result.txid)
+
+      if (typeof result.txid !== 'string') {
+        throw new Error('Revoke failed: broadcast did not return a txid')
+      }
+
+      return { txid: result.txid }
+    } catch (err) {
+      Logger.error('[MB CLIENT ERROR] revokeHost threw:', err)
+      throw err
+    }
+  }
+
+  /**
    * @method listMessages
    * @async
    * @param {ListMessagesParams} params - Contains the name of the messageBox to read from.
@@ -1011,7 +1110,7 @@ export class MessageBoxClient {
    *
    * @description
    * Retrieves all messages from the specified `messageBox` assigned to the current identity key.
-   * Messages are fetched from the resolved overlay host (via LookupResolver) or the default host if no advertisement is found.
+   * Unless a host override is provided, messages are fetched from the resolved overlay host (via LookupResolver) or the default host if no advertisement is found.
    *
    * Each message is:
    * - Parsed and, if encrypted, decrypted using AES-256-GCM via BRC-2-compliant ECDH key derivation and symmetric encryption.
@@ -1026,25 +1125,66 @@ export class MessageBoxClient {
    * const messages = await client.listMessages({ messageBox: 'inbox' })
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
-  async listMessages ({ messageBox }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages ({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
     await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
 
-    const response = await this.authFetch.fetch(`${this.host}/listMessages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ messageBox })
-    })
-
-    const parsedResponse = await response.json()
-
-    if (parsedResponse.status === 'error') {
-      throw new Error(parsedResponse.description)
+    let hosts: string[] = host != null ? [host] : []
+    if (hosts.length === 0) {
+      const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey())
+      hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
+
+    // Query each host in parallel
+    const fetchFromHost = async (host: string): Promise<PeerMessage[]> => {
+      try {
+        Logger.log(`[MB CLIENT] Listing messages from ${host}…`)
+        const res = await this.authFetch.fetch(`${host}/listMessages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageBox })
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
+        const data = await res.json()
+        if (data.status === 'error') throw new Error(data.description ?? 'Unknown server error')
+        return data.messages as PeerMessage[]
+      } catch (err) {
+        Logger.log(`[MB CLIENT DEBUG] listMessages failed for ${host}:`, err)
+        throw err // re-throw to be caught in the settled promise
+      }
+    }
+
+    const settled = await Promise.allSettled(hosts.map(fetchFromHost))
+
+    // 3. Split successes / failures
+    const messagesByHost: PeerMessage[][] = []
+    const errors: any[] = []
+
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        messagesByHost.push(r.value)
+      } else {
+        errors.push(r.reason)
+      }
+    }
+
+    // 4. If *every* host failed – throw aggregated error
+    if (messagesByHost.length === 0) {
+      throw new Error('Failed to retrieve messages from any host')
+    }
+
+    // 5. Merge & de‑duplicate (first‑seen wins)
+    const dedupMap = new Map<string, PeerMessage>()
+    for (const messageList of messagesByHost) {
+      for (const m of messageList) {
+        if (!dedupMap.has(m.messageId)) dedupMap.set(m.messageId, m)
+      }
+    }
+
+    // 6. Early‑out: no messages but at least one host succeeded → []
+    if (dedupMap.size === 0) return []
 
     const tryParse = (raw: string): any => {
       try {
@@ -1054,38 +1194,53 @@ export class MessageBoxClient {
       }
     }
 
-    for (const message of parsedResponse.messages) {
+    const messages: PeerMessage[] = Array.from(dedupMap.values())
+
+    for (const message of messages) {
       try {
         const parsedBody: unknown =
-          typeof message.body === 'string'
-            ? tryParse(message.body)
-            : message.body
+          typeof message.body === 'string' ? tryParse(message.body) : message.body
 
         if (
           parsedBody != null &&
           typeof parsedBody === 'object' &&
           typeof (parsedBody as any).encryptedMessage === 'string'
         ) {
-          Logger.log(`[MB CLIENT] Decrypting message from ${String(message.sender)}...`)
+          Logger.log(
+            `[MB CLIENT] Decrypting message from ${String(message.sender)}…`
+          )
+
           const decrypted = await this.walletClient.decrypt({
             protocolID: [1, 'messagebox'],
             keyID: '1',
             counterparty: message.sender,
-            ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
+            ciphertext: Utils.toArray(
+              (parsedBody as any).encryptedMessage,
+              'base64'
+            )
           })
 
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          message.body = parsedBody
+          message.body = parsedBody as string
         }
       } catch (err) {
-        Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt message in list:', err)
+        Logger.error(
+          '[MB CLIENT ERROR] Failed to parse or decrypt message in list:',
+          err
+        )
         message.body = '[Error: Failed to decrypt or parse message]'
       }
     }
 
-    return parsedResponse.messages
+    // Sort newest‑first for a deterministic order
+    messages.sort(
+      (a, b) =>
+        Number((b as any).timestamp ?? 0) - Number((a as any).timestamp ?? 0)
+    )
+
+    return messages
   }
 
   /**
@@ -1095,43 +1250,74 @@ export class MessageBoxClient {
    * @returns {Promise<string>} - A string indicating the result, typically `'success'`.
    *
    * @description
-   * Notifies the MessageBox server (or overlay-resolved host) that one or more messages have been
+   * Notifies the MessageBox server(s) that one or more messages have been
    * successfully received and processed by the client. Once acknowledged, these messages are removed
-   * from the recipient's inbox on the server.
+   * from the recipient's inbox on the server(s).
    *
    * This operation is essential for proper message lifecycle management and prevents duplicate
    * processing or delivery.
    *
-   * Acknowledgment requires authentication with the local identity key and supports overlay routing
-   * to the appropriate server by resolving advertisements for the identity.
+   * Acknowledgment supports providing a host override, or will use overlay routing to find the appropriate server the received the given message.
    *
    * @throws {Error} If the message ID array is missing or empty, or if the request to the server fails.
    *
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage ({ messageIds }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage ({ messageIds, host }: AcknowledgeMessageParams): Promise<string> {
     await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
     }
 
-    Logger.log(`[MB CLIENT] Acknowledging messages: ${JSON.stringify(messageIds)}`)
+    Logger.log(`[MB CLIENT] Acknowledging messages ${JSON.stringify(messageIds)}…`)
 
-    const acknowledged = await this.authFetch.fetch(`${this.host}/acknowledgeMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ messageIds })
-    })
-
-    const parsedAcknowledged = await acknowledged.json()
-
-    if (parsedAcknowledged.status === 'error') {
-      throw new Error(parsedAcknowledged.description)
+    let hosts: string[] = host != null ? [host] : []
+    if (hosts.length === 0) {
+      // 1. Determine all hosts (advertised + default)
+      const identityKey = await this.getIdentityKey()
+      const advertisedHosts = await this.queryAdvertisements(identityKey)
+      hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
-    return parsedAcknowledged.status
+    // 2. Dispatch parallel acknowledge requests
+    const ackFromHost = async (host: string): Promise<string | null> => {
+      try {
+        const res = await this.authFetch.fetch(`${host}/acknowledgeMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageIds })
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        if (data.status === 'error') throw new Error(data.description)
+        Logger.log(`[MB CLIENT] Acknowledged on ${host}`)
+        return data.status as string
+      } catch (err) {
+        Logger.warn(`[MB CLIENT WARN] acknowledgeMessage failed for ${host}:`, err)
+        return null
+      }
+    }
+
+    const settled = await Promise.allSettled(hosts.map(ackFromHost))
+
+    const successes = settled.filter(
+      (r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled'
+    )
+
+    const firstSuccess = successes.find(s => s.value != null)?.value
+
+    if (firstSuccess != null) {
+      return firstSuccess
+    }
+
+    // No host accepted the acknowledgement
+    const errs: any[] = []
+    for (const r of settled) {
+      if (r.status === 'rejected') errs.push(r.reason)
+    }
+    throw new Error(
+      `Failed to acknowledge messages on all hosts: ${errs.map(e => String(e)).join('; ')}`
+    )
   }
 }
