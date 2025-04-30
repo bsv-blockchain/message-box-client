@@ -320,7 +320,6 @@ describe('MessageBoxClient', () => {
 
     const result = await messageBoxClient.listMessages({ messageBox: 'test_inbox' })
 
-    console.log('result', result)
 
     expect(result).toEqual(JSON.parse(VALID_LIST_AND_READ_RESULT.body).messages)
   })
