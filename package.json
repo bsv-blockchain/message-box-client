@@ -75,7 +75,6 @@
   },
   "dependencies": {
     "@bsv/authsocket-client": "^1.0.8",
-    "@bsv/sdk": "^1.5.2",
-    "amountinator": "^0.2.6"
+    "@bsv/sdk": "^1.5.2"
   }
 }
