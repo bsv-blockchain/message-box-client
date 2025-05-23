@@ -354,7 +354,7 @@ export class PeerPayClient extends MessageBoxClient {
     return messages.map((msg: any) => ({
       messageId: msg.messageId,
       sender: msg.sender,
-      token: JSON.parse(msg.body)
+      token: msg.body
     }))
   }
 }
