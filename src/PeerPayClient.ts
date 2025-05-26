@@ -178,7 +178,7 @@ export class PeerPayClient extends MessageBoxClient {
     await this.sendMessage({
       recipient: payment.recipient,
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      body: paymentToken
+      body: JSON.stringify(paymentToken)
     })
   }
 
@@ -202,7 +202,7 @@ export class PeerPayClient extends MessageBoxClient {
     await this.sendLiveMessage({
       recipient: payment.recipient,
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      body: paymentToken
+      body: JSON.stringify(paymentToken)
     })
   }
 
@@ -351,10 +351,20 @@ export class PeerPayClient extends MessageBoxClient {
   async listIncomingPayments (): Promise<IncomingPayment[]> {
     const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX })
 
-    return messages.map((msg: any) => ({
-      messageId: msg.messageId,
-      sender: msg.sender,
-      token: JSON.parse(msg.body)
-    }))
+    return messages.map((msg: any) => {
+      let parsedToken
+      try {
+        parsedToken = typeof msg.body === 'string' ? JSON.parse(msg.body) : msg.body
+      } catch (e) {
+        Logger.error('[PP CLIENT] Failed to parse incoming payment message body:', msg.body)
+        parsedToken = {}
+      }
+
+      return {
+        messageId: msg.messageId,
+        sender: msg.sender,
+        token: parsedToken
+      }
+    })
   }
 }
