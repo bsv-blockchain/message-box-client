@@ -575,7 +575,9 @@ export class MessageBoxClient {
             message.body = Utils.toUTF8(decrypted.plaintext)
           } else {
             Logger.log('[MB CLIENT] Message is not encrypted.')
-            message.body = typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody)
+            message.body = typeof parsedBody === 'string'
+              ? parsedBody
+              : (() => { try { return JSON.stringify(parsedBody) } catch { return '[Error: Unstringifiable message]' } })()
           }
         } catch (err) {
           Logger.error('[MB CLIENT ERROR] Failed to parse or decrypt live message:', err)
@@ -693,10 +695,18 @@ export class MessageBoxClient {
         Logger.log('[MB CLIENT] Received WebSocket acknowledgment:', response)
 
         if (response == null || response.status !== 'success') {
-          Logger.warn('[MB CLIENT] WebSocket message failed, falling back to HTTP')
+          Logger.warn('[MB CLIENT] WebSocket message failed or returned unexpected response. Falling back to HTTP.')
+          const fallbackMessage: SendMessageParams = {
+            recipient,
+            messageBox,
+            body,
+            messageId: finalMessageId,
+            skipEncryption
+          }
+
           this.resolveHostForRecipient(recipient)
             .then(async (host) => {
-              return await this.sendMessage({ recipient, messageBox, body }, host)
+              return await this.sendMessage(fallbackMessage, host)
             })
             .then(resolve)
             .catch(reject)
@@ -728,9 +738,17 @@ export class MessageBoxClient {
             socketAny.off(ackEvent, ackHandler)
           }
           Logger.warn('[CLIENT] WebSocket acknowledgment timed out, falling back to HTTP')
+          const fallbackMessage: SendMessageParams = {
+            recipient,
+            messageBox,
+            body,
+            messageId: finalMessageId,
+            skipEncryption
+          }
+
           this.resolveHostForRecipient(recipient)
             .then(async (host) => {
-              return await this.sendMessage({ recipient, messageBox, body }, host)
+              return await this.sendMessage(fallbackMessage, host)
             })
             .then(resolve)
             .catch(reject)
@@ -1223,7 +1241,7 @@ export class MessageBoxClient {
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          message.body = parsedBody as string
+          message.body = parsedBody
         }
       } catch (err) {
         Logger.error(

@@ -37,7 +37,7 @@ export interface MessageBoxClientOptions {
  */
 export interface PeerMessage {
   messageId: string
-  body: string
+  body: string | Record<string, any>
   sender: string
   created_at: string
   updated_at: string

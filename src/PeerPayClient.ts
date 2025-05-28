@@ -15,6 +15,17 @@ import { PeerMessage } from './types.js'
 import { WalletClient, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
 import { Logger } from './Utils/logger.js'
 
+function safeParse<T> (input: any): T {
+  try {
+    return typeof input === 'string' ? JSON.parse(input) : input
+  } catch (e) {
+    Logger.error('[PP CLIENT] Failed to parse input in safeParse:', input)
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const fallback = {} as T
+    return fallback
+  }
+}
+
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
 const STANDARD_PAYMENT_OUTPUT_INDEX = 0
 
@@ -198,12 +209,23 @@ export class PeerPayClient extends MessageBoxClient {
   async sendLivePayment (payment: PaymentParams): Promise<void> {
     const paymentToken = await this.createPaymentToken(payment)
 
-    // Ensure the recipient is included before sending
-    await this.sendLiveMessage({
-      recipient: payment.recipient,
-      messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      body: JSON.stringify(paymentToken)
-    })
+    try {
+      // Attempt WebSocket first
+      await this.sendLiveMessage({
+        recipient: payment.recipient,
+        messageBox: STANDARD_PAYMENT_MESSAGEBOX,
+        body: JSON.stringify(paymentToken)
+      })
+    } catch (err) {
+      Logger.warn('[PP CLIENT] sendLiveMessage failed, falling back to HTTP:', err)
+
+      // Fallback to HTTP if WebSocket fails
+      await this.sendMessage({
+        recipient: payment.recipient,
+        messageBox: STANDARD_PAYMENT_MESSAGEBOX,
+        body: JSON.stringify(paymentToken)
+      })
+    }
   }
 
   /**
@@ -229,7 +251,7 @@ export class PeerPayClient extends MessageBoxClient {
         const incomingPayment: IncomingPayment = {
           messageId: message.messageId,
           sender: message.sender,
-          token: JSON.parse(message.body)
+          token: safeParse<PaymentToken>(message.body)
         }
         Logger.log('[PP CLIENT] Converted PeerMessage to IncomingPayment:', incomingPayment)
         onPayment(incomingPayment)
@@ -352,13 +374,7 @@ export class PeerPayClient extends MessageBoxClient {
     const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX })
 
     return messages.map((msg: any) => {
-      let parsedToken
-      try {
-        parsedToken = typeof msg.body === 'string' ? JSON.parse(msg.body) : msg.body
-      } catch (e) {
-        Logger.error('[PP CLIENT] Failed to parse incoming payment message body:', msg.body)
-        parsedToken = {}
-      }
+      const parsedToken = safeParse<PaymentToken>(msg.body)
 
       return {
         messageId: msg.messageId,
