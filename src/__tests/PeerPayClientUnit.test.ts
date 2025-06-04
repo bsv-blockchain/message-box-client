@@ -118,7 +118,7 @@ describe('PeerPayClient Unit Tests', () => {
       expect(sendMessageSpy).toHaveBeenCalledWith({
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
-        body: expect.any(Object)
+        body: expect.any(String)
       })
     }, 10000)
   })
@@ -147,14 +147,7 @@ describe('PeerPayClient Unit Tests', () => {
       expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
-        body: {
-          customInstructions: {
-            derivationPrefix: 'prefix',
-            derivationSuffix: 'suffix'
-          },
-          transaction: expect.any(Array),
-          amount: 2
-        }
+        body: "{\"customInstructions\":{\"derivationPrefix\":\"prefix\",\"derivationSuffix\":\"suffix\"},\"transaction\":[1,2,3,4,5],\"amount\":2}"
       })
     })
   })
