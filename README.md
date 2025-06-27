@@ -1,6 +1,6 @@
 # BSV Peer-to-Peer Messaging & Payment Tools
 
-**@bsv/p2p** is a toolkit for **peer-to-peer messaging and payments** on the BSV blockchain. It leverages a server-side **store-and-forward** system for message delivery (via `MessageBoxClient`) and also includes a higher-level **peer-to-peer payment** flow (via `PeerPayClient`). Both functionalities build on [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md) for mutual authentication and identity key management, allowing secure and  authenticated exchanges of data and BSV.
+**@bsv/message-box-client** is a toolkit for **peer-to-peer messaging and payments** on the BSV blockchain. It leverages a server-side **store-and-forward** system for message delivery (via `MessageBoxClient`) and also includes a higher-level **peer-to-peer payment** flow (via `PeerPayClient`). Both functionalities build on [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md) for mutual authentication and identity key management, allowing secure and  authenticated exchanges of data and BSV.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@
 
 ## 1. Introduction
 
-The **@bsv/p2p** library provides two main tools for peer-to-peer interaction:
+The **@bsv/message-box-client** library provides two main tools for peer-to-peer interaction:
 
 1. **MessageBoxClient** – A store-and-forward messaging system backed by a "message box" server. It supports authenticated sending, listing, and acknowledging (deleting) messages with a mutual-auth approach.  
 2. **PeerPayClient** – A higher-level payment client built on top of `MessageBoxClient`, enabling real-time, peer-to-peer Bitcoin payments on the BSV blockchain.
@@ -35,7 +35,7 @@ Both clients use the [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/pe
 ## 2. Installation
 
 ```bash
-npm install @bsv/p2p
+npm install @bsv/message-box-client
 ```
 
 The package exports both `MessageBoxClient` and `PeerPayClient`. You can import them individually in your JavaScript/TypeScript applications.
@@ -123,7 +123,7 @@ ________________________________________
 #### Important: Initialization Requirement
 
 **Important:**  
-Starting with version `@bsv/p2p@1.2.0`, `MessageBoxClient` **automatically initializes itself** if needed.
+Starting with version `@bsv/message-box-client@1.2.0`, `MessageBoxClient` **automatically initializes itself** if needed.
 
 - If you provide a host during construction, the client will auto-initialize on first use.
 - If no host is provided, the client will anoint a host from the overlay network automatically during initialization.
@@ -185,7 +185,7 @@ Below are two condensed examples: one for basic messaging (MessageBoxClient) and
 
 ```js
 const { WalletClient } = require('@bsv/sdk')
-const { MessageBoxClient } = require('@bsv/p2p')
+const { MessageBoxClient } = require('@bsv/message-box-client')
 
 // Example identity key of the recipient (public key in hex)
 const johnSmithKey = '022600d2ef37d123fdcac7d25d7a464ada7acd3fb65a0daf85412140ee20884311'
@@ -248,7 +248,7 @@ await msgBoxClient.listenForLiveMessages({
 
 ```ts
 import { WalletClient } from '@bsv/sdk'
-import { PeerPayClient } from '@bsv/p2p'
+import { PeerPayClient } from '@bsv/message-box-client'
 
 async function paymentDemo() {
   // 1) Create your wallet instance
@@ -889,7 +889,7 @@ Links: [API](#api), [Interfaces](#interfaces), [Classes](#classes)
 ### 5.2. PeerPayClient API
 
 ```ts
-import { PeerPayClient } from '@bsv/p2p'
+import { PeerPayClient } from '@bsv/message-box-client'
 ```
 
 #### Constructor

@@ -1,5 +1,5 @@
 {
-  "name": "@bsv/p2p",
+  "name": "@bsv/message-box-client",
   "version": "1.1.6",
   "publishConfig": {
     "access": "public"
