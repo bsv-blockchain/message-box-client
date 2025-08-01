@@ -69,6 +69,26 @@ export interface SendMessageParams {
 }
 
 /**
+ * Payment output with BRC-42 remittance data
+ */
+export interface PaymentOutput {
+  /** Output index in transaction */
+  outputIndex: number
+  /** Protocol identifier */
+  protocol: 'wallet payment'
+  /** BRC-42 payment remittance instructions */
+  paymentRemittance: {
+    derivationPrefix: string
+    derivationSuffix: string
+    senderIdentityKey: string
+  }
+  /** Satoshi amount for this output */
+  satoshis: number
+  /** Output description */
+  outputDescription: string
+}
+
+/**
  * Payment transaction data for message delivery fees
  */
 export interface PaymentData {
@@ -78,9 +98,10 @@ export interface PaymentData {
   deliveryFee: number
   /** Recipient fee portion */
   recipientFee: number
-  /** Transaction outputs for payment */
-  outputs: any[]
-  tx: AtomicBEEF
+  /** Transaction outputs with BRC-42 remittance data */
+  outputs: PaymentOutput[]
+  /** BRC-62 AtomicBEEF transaction data */
+  tx?: AtomicBEEF
 }
 
 /**

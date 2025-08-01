@@ -36,11 +36,12 @@ import {
   PubKeyHex,
   createNonce,
   P2PKH,
-  PublicKey
+  PublicKey,
+  CreateActionOutput
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
-import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PaymentData, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
+import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PaymentData, PaymentOutput, PaymentOutput, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
 import { SetMessageBoxPermissionParams, GetMessageBoxPermissionParams, PermissionStatus, MessageBoxQuote, PermissionListItem, ListPermissionsParams, GetQuoteParams } from './types/permissions.js'
 
 const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
@@ -1815,11 +1816,15 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Creating payment transaction for ${quote.totalCost} sats (delivery: ${quote.deliveryFee}, recipient: ${quote.recipientFee})`)
 
-    const outputs = []
+    const outputs: PaymentOutput[] = []
+    const createActionOutputs: CreateActionOutput[] = []
 
     // Generate derivation paths using correct nonce function
     const derivationPrefix = await createNonce(this.walletClient)
     const derivationSuffix = await createNonce(this.walletClient)
+
+    // Get sender identity key for remittance data
+    const senderIdentityKey = await this.getIdentityKey()
 
     // Add server delivery fee output if > 0
     if (quote.deliveryFee > 0) {
@@ -1836,9 +1841,24 @@ export class MessageBoxClient {
 
       // Create locking script using host's public key
       const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
-      outputs.push({
+
+      // Add to createAction outputs
+      createActionOutputs.push({
         satoshis: quote.deliveryFee,
         lockingScript,
+        outputDescription: 'MessageBox server delivery fee'
+      })
+
+      // Add to BRC-42 remittance outputs
+      outputs.push({
+        outputIndex: 0,
+        protocol: 'wallet payment',
+        paymentRemittance: {
+          derivationPrefix,
+          derivationSuffix,
+          senderIdentityKey
+        },
+        satoshis: quote.deliveryFee,
         outputDescription: 'MessageBox server delivery fee'
       })
     }
@@ -1858,16 +1878,31 @@ export class MessageBoxClient {
 
       // Create locking script using recipient's public key
       const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
-      outputs.push({
+
+      // Add to createAction outputs
+      createActionOutputs.push({
         satoshis: quote.recipientFee,
         lockingScript,
+        outputDescription: 'MessageBox recipient fee'
+      })
+
+      // Add to BRC-42 remittance outputs
+      outputs.push({
+        outputIndex: 1,
+        protocol: 'wallet payment',
+        paymentRemittance: {
+          derivationPrefix,
+          derivationSuffix,
+          senderIdentityKey
+        },
+        satoshis: quote.recipientFee,
         outputDescription: 'MessageBox recipient fee'
       })
     }
 
     const { tx } = await this.walletClient.createAction({
       description,
-      outputs,
+      outputs: createActionOutputs,
       options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
     })
 
@@ -1875,7 +1910,7 @@ export class MessageBoxClient {
       amount: quote.totalCost,
       deliveryFee: quote.deliveryFee,
       recipientFee: quote.recipientFee,
-      outputs,
+      outputs, // BRC-42 remittance outputs
       tx
     }
   }
