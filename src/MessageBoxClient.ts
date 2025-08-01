@@ -869,7 +869,7 @@ export class MessageBoxClient {
     }
 
     // Optional permission checking for backwards compatibility
-    let paymentData: any = undefined
+    let paymentData: PaymentData | undefined
     if (message.checkPermissions === true) {
       try {
         Logger.log('[MB CLIENT] Checking permissions and fees for message...')
@@ -899,7 +899,8 @@ export class MessageBoxClient {
             paymentData = await this.createMessagePayment(
               message.recipient,
               quote,
-              'Message delivery payment'
+              'Message delivery payment',
+              overrideHost
             )
 
             Logger.log('[MB CLIENT] Payment data prepared:', paymentData)
@@ -1751,11 +1752,14 @@ export class MessageBoxClient {
     }
 
     // 3. Create payment if required
-    const paymentData = await this.createMessagePayment(recipient, quote, 'Notification delivery payment')
+    let paymentData: PaymentData | undefined
+    if (quote.requiresPayment && quote.totalCost > 0) {
+      paymentData = await this.createMessagePayment(recipient, quote, 'Notification delivery payment', overrideHost)
+    }
 
     // 4. Prepare message body with payment if required
     let messageBody: any = body
-    if (paymentData.amount > 0) {
+    if (paymentData && paymentData.amount > 0) {
       messageBody = {
         ...((typeof body === 'object' && body) || { content: body }),
         payment: paymentData
