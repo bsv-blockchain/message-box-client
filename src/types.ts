@@ -1,4 +1,4 @@
-import { Base64String, WalletClient } from '@bsv/sdk'
+import { AtomicBEEF, Base64String, WalletClient } from '@bsv/sdk'
 
 /**
  * Configuration options for initializing a MessageBoxClient.
@@ -62,6 +62,25 @@ export interface SendMessageParams {
   body: string | object
   messageId?: string
   skipEncryption?: boolean
+  /** Optional: Enable permission and fee checking (default: false for backwards compatibility) */
+  checkPermissions?: boolean
+  /** Optional: Maximum payment willing to make if permissions require payment */
+  maxPayment?: number
+}
+
+/**
+ * Payment transaction data for message delivery fees
+ */
+export interface PaymentData {
+  /** Total payment amount in satoshis */
+  amount: number
+  /** Server delivery fee portion */
+  deliveryFee: number
+  /** Recipient fee portion */
+  recipientFee: number
+  /** Transaction outputs for payment */
+  outputs: any[]
+  tx: AtomicBEEF
 }
 
 /**

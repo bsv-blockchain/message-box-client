@@ -32,11 +32,16 @@ import {
   PushDrop,
   BEEF,
   LockingScript,
-  HexString
+  HexString,
+  PubKeyHex,
+  createNonce,
+  P2PKH,
+  PublicKey
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
-import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
+import { AcknowledgeMessageParams, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, PaymentData, PeerMessage, SendMessageParams, SendMessageResponse } from './types.js'
+import { SetMessageBoxPermissionParams, GetMessageBoxPermissionParams, PermissionStatus, MessageBoxQuote, PermissionListItem, ListPermissionsParams, GetQuoteParams } from './types/permissions.js'
 
 const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
 const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
@@ -623,7 +628,9 @@ export class MessageBoxClient {
     messageBox,
     body,
     messageId,
-    skipEncryption
+    skipEncryption,
+    checkPermissions,
+    maxPayment
   }: SendMessageParams): Promise<SendMessageResponse> {
     await this.assertInitialized()
     if (recipient == null || recipient.trim() === '') {
@@ -701,7 +708,9 @@ export class MessageBoxClient {
             messageBox,
             body,
             messageId: finalMessageId,
-            skipEncryption
+            skipEncryption,
+            checkPermissions,
+            maxPayment
           }
 
           this.resolveHostForRecipient(recipient)
@@ -743,7 +752,9 @@ export class MessageBoxClient {
             messageBox,
             body,
             messageId: finalMessageId,
-            skipEncryption
+            skipEncryption,
+            checkPermissions,
+            maxPayment
           }
 
           this.resolveHostForRecipient(recipient)
@@ -857,6 +868,52 @@ export class MessageBoxClient {
       throw new Error('Every message must have a body!')
     }
 
+    // Optional permission checking for backwards compatibility
+    let paymentData: any = undefined
+    if (message.checkPermissions === true) {
+      try {
+        Logger.log('[MB CLIENT] Checking permissions and fees for message...')
+
+        // Get quote to check if payment is required
+        const quote = await this.getMessageBoxQuote({
+          recipient: message.recipient,
+          messageBox: message.messageBox
+        })
+
+        if (!quote.allowed) {
+          throw new Error(`Message blocked: ${quote.blockedReason || 'Sender not allowed'}`)
+        }
+
+        if (quote.requiresPayment) {
+          const requiredPayment = quote.totalCost || 0
+
+          // Check against optional maxPayment limit
+          if (message.maxPayment !== undefined && requiredPayment > message.maxPayment) {
+            throw new Error(`Payment required (${requiredPayment} sats) exceeds maximum willing to pay (${message.maxPayment} sats)`)
+          }
+
+          if (requiredPayment > 0) {
+            Logger.log(`[MB CLIENT] Creating payment of ${requiredPayment} sats for message...`)
+
+            // Create payment using helper method
+            paymentData = await this.createMessagePayment(
+              message.recipient,
+              quote,
+              'Message delivery payment'
+            )
+
+            Logger.log('[MB CLIENT] Payment data prepared:', paymentData)
+          }
+        }
+
+        const statusText = !quote.allowed ? 'blocked' : quote.requiresPayment ? 'payment_required' : 'allowed'
+        Logger.log(`[MB CLIENT] Permission check passed. Status: ${statusText}`)
+      } catch (error) {
+        Logger.error('[MB CLIENT ERROR] Permission check failed:', error)
+        throw new Error(`Permission check failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+
     let messageId: string
     try {
       const hmac = await this.walletClient.createHmac({
@@ -890,7 +947,8 @@ export class MessageBoxClient {
         ...message,
         messageId,
         body: finalBody
-      }
+      },
+      ...(paymentData && { payment: paymentData })
     }
 
     try {
@@ -1337,5 +1395,484 @@ export class MessageBoxClient {
     throw new Error(
       `Failed to acknowledge messages on all hosts: ${errs.map(e => String(e)).join('; ')}`
     )
+  }
+
+  // ===========================
+  // PERMISSION MANAGEMENT METHODS
+  // ===========================
+
+  /**
+   * @method setMessageBoxPermission
+   * @async
+   * @param {SetMessageBoxPermissionParams} params - Permission configuration
+   * @param {string} [overrideHost] - Optional host override
+   * @returns {Promise<PermissionStatus>} Permission status after setting
+   * 
+   * @description
+   * Sets permission for receiving messages in a specific messageBox.
+   * Can set sender-specific permissions or box-wide defaults.
+   * 
+   * @example
+   * // Set box-wide default: allow notifications for 10 sats
+   * await client.setMessageBoxPermission({ messageBox: 'notifications', recipientFee: 10 })
+   * 
+   * // Block specific sender
+   * await client.setMessageBoxPermission({ 
+   *   messageBox: 'notifications', 
+   *   sender: '03abc123...',
+   *   recipientFee: 0 
+   * })
+   */
+  async setMessageBoxPermission(
+    params: SetMessageBoxPermissionParams,
+    overrideHost?: string
+  ): Promise<PermissionStatus> {
+    await this.assertInitialized()
+
+    const endpoint = params.sender ? '/permissions/set' : '/permissions/set-box-wide'
+    const finalHost = overrideHost ?? this.host
+
+    const requestBody = params.sender
+      ? { sender: params.sender, message_box: params.messageBox, recipient_fee: params.recipientFee }
+      : { message_box: params.messageBox, recipient_fee: params.recipientFee }
+
+    Logger.log(`[MB CLIENT] Setting messageBox permission via ${endpoint}...`)
+
+    const response = await this.authFetch.fetch(`${finalHost}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to set permission: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+    }
+
+    const data = await response.json()
+    if (data.status === 'error') {
+      throw new Error(data.description || 'Failed to set permission')
+    }
+
+    Logger.log('[MB CLIENT] Permission set successfully')
+    return this.mapToPermissionStatus(data.permission)
+  }
+
+  /**
+   * @method getMessageBoxPermission
+   * @async
+   * @param {GetMessageBoxPermissionParams} params - Permission query parameters
+   * @param {string} [overrideHost] - Optional host override
+   * @returns {Promise<PermissionStatus>} Current permission status
+   * 
+   * @description
+   * Gets current permission status for a sender/messageBox combination.
+   * 
+   * @example
+   * const status = await client.getMessageBoxPermission({
+   *   recipient: '03def456...',
+   *   messageBox: 'notifications',
+   *   sender: '03abc123...'
+   * })
+   */
+  async getMessageBoxPermission(
+    params: GetMessageBoxPermissionParams,
+    overrideHost?: string
+  ): Promise<PermissionStatus> {
+    await this.assertInitialized()
+
+    const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
+    const queryParams = new URLSearchParams({
+      recipient: params.recipient,
+      message_box: params.messageBox,
+      ...(params.sender && { sender: params.sender })
+    })
+
+    Logger.log(`[MB CLIENT] Getting messageBox permission...`)
+
+    const response = await this.authFetch.fetch(`${finalHost}/permissions/get?${queryParams}`, {
+      method: 'GET'
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to get permission: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+    }
+
+    const data = await response.json()
+    if (data.status === 'error') {
+      throw new Error(data.description || 'Failed to get permission')
+    }
+
+    return this.mapToPermissionStatus(data.permission)
+  }
+
+  /**
+   * @method getMessageBoxQuote
+   * @async
+   * @param {GetQuoteParams} params - Quote request parameters
+   * @returns {Promise<MessageBoxQuote>} Fee quote and permission status
+   * 
+   * @description
+   * Gets a fee quote for sending a message, including delivery and recipient fees.
+   * 
+   * @example
+   * const quote = await client.getMessageBoxQuote({
+   *   recipient: '03def456...',
+   *   messageBox: 'notifications',
+   *   paymentAmount: 15
+   * })
+   */
+  async getMessageBoxQuote(params: GetQuoteParams): Promise<MessageBoxQuote> {
+    await this.assertInitialized()
+
+    const finalHost = params.host ?? await this.resolveHostForRecipient(params.recipient)
+    const queryParams = new URLSearchParams({
+      recipient: params.recipient,
+      message_box: params.messageBox,
+      ...(params.paymentAmount !== undefined && { payment_amount: params.paymentAmount.toString() })
+    })
+
+    Logger.log(`[MB CLIENT] Getting messageBox quote...`)
+
+    const response = await this.authFetch.fetch(`${finalHost}/permissions/quote?${queryParams}`, {
+      method: 'GET'
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to get quote: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+    }
+
+    const data = await response.json()
+    if (data.status === 'error') {
+      throw new Error(data.description || 'Failed to get quote')
+    }
+
+    return {
+      deliveryFee: data.delivery_fee,
+      recipientFee: data.recipient_fee,
+      totalCost: data.total_cost,
+      allowed: data.allowed,
+      requiresPayment: data.requires_payment,
+      blockedReason: data.blocked_reason
+    }
+  }
+
+  /**
+   * @method listMessageBoxPermissions
+   * @async
+   * @param {ListPermissionsParams} [params] - Optional filtering and pagination parameters
+   * @returns {Promise<PermissionListItem[]>} List of current permissions
+   * 
+   * @description
+   * Lists permissions for the authenticated user's messageBoxes with optional pagination.
+   * 
+   * @example
+   * // List all permissions
+   * const all = await client.listMessageBoxPermissions()
+   * 
+   * // List only notification permissions with pagination
+   * const notifications = await client.listMessageBoxPermissions({ 
+   *   messageBox: 'notifications',
+   *   limit: 50,
+   *   offset: 0
+   * })
+   */
+  async listMessageBoxPermissions(params?: ListPermissionsParams): Promise<PermissionListItem[]> {
+    await this.assertInitialized()
+
+    const finalHost = params?.host ?? this.host
+    const queryParams = new URLSearchParams()
+
+    if (params?.messageBox) {
+      queryParams.set('message_box', params.messageBox)
+    }
+    if (params?.limit !== undefined) {
+      queryParams.set('limit', params.limit.toString())
+    }
+    if (params?.offset !== undefined) {
+      queryParams.set('offset', params.offset.toString())
+    }
+
+    Logger.log(`[MB CLIENT] Listing messageBox permissions with params:`, queryParams.toString())
+
+    const response = await this.authFetch.fetch(`${finalHost}/permissions/list?${queryParams}`, {
+      method: 'GET'
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`Failed to list permissions: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+    }
+
+    const data = await response.json()
+    if (data.status === 'error') {
+      throw new Error(data.description || 'Failed to list permissions')
+    }
+
+    return data.permissions.map((p: any) => ({
+      sender: p.sender,
+      messageBox: p.message_box,
+      recipientFee: p.recipient_fee,
+      status: this.getStatusFromFee(p.recipient_fee),
+      createdAt: p.created_at,
+      updatedAt: p.updated_at
+    }))
+  }
+
+  // ===========================
+  // NOTIFICATION CONVENIENCE METHODS
+  // ===========================
+
+  /**
+   * @method allowNotificationsFromPeer
+   * @async
+   * @param {PubKeyHex} identityKey - Sender's identity key to allow
+   * @param {number} [recipientFee=-1] - Fee to charge (-1 for always allow)
+   * @returns {Promise<PermissionStatus>} Permission status after allowing
+   * 
+   * @description
+   * Convenience method to allow notifications from a specific peer.
+   * 
+   * @example
+   * await client.allowNotificationsFromPeer('03abc123...') // Always allow
+   * await client.allowNotificationsFromPeer('03def456...', 5) // Allow for 5 sats
+   */
+  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = -1): Promise<PermissionStatus> {
+    return this.setMessageBoxPermission({
+      messageBox: 'notifications',
+      sender: identityKey,
+      recipientFee
+    })
+  }
+
+  /**
+   * @method denyNotificationsFromPeer
+   * @async
+   * @param {PubKeyHex} identityKey - Sender's identity key to block
+   * @returns {Promise<PermissionStatus>} Permission status after denying
+   * 
+   * @description
+   * Convenience method to block notifications from a specific peer.
+   * 
+   * @example
+   * await client.denyNotificationsFromPeer('03spam123...')
+   */
+  async denyNotificationsFromPeer(identityKey: PubKeyHex): Promise<PermissionStatus> {
+    return this.setMessageBoxPermission({
+      messageBox: 'notifications',
+      sender: identityKey,
+      recipientFee: 0
+    })
+  }
+
+  /**
+   * @method checkPeerNotificationStatus
+   * @async
+   * @param {PubKeyHex} identityKey - Sender's identity key to check
+   * @returns {Promise<PermissionStatus>} Current permission status
+   * 
+   * @description
+   * Convenience method to check notification permission for a specific peer.
+   * 
+   * @example
+   * const status = await client.checkPeerNotificationStatus('03abc123...')
+   * console.log(status.allowed) // true/false
+   */
+  async checkPeerNotificationStatus(identityKey: PubKeyHex): Promise<PermissionStatus> {
+    const myKey = await this.getIdentityKey()
+    return this.getMessageBoxPermission({
+      recipient: myKey,
+      messageBox: 'notifications',
+      sender: identityKey
+    })
+  }
+
+  /**
+   * @method listPeerNotifications
+   * @async
+   * @returns {Promise<PermissionListItem[]>} List of notification permissions
+   * 
+   * @description
+   * Convenience method to list all notification permissions.
+   * 
+   * @example
+   * const notifications = await client.listPeerNotifications()
+   */
+  async listPeerNotifications(): Promise<PermissionListItem[]> {
+    return this.listMessageBoxPermissions({ messageBox: 'notifications' })
+  }
+
+  /**
+   * @method sendNotification
+   * @async
+   * @param {PubKeyHex} recipient - Recipient's identity key
+   * @param {string | object} body - Notification content
+   * @param {number} [maxPayment] - Optional maximum payment willing to pay (safety limit)
+   * @param {string} [overrideHost] - Optional host override
+   * @returns {Promise<SendMessageResponse>} Send result
+   * 
+   * @description
+   * Convenience method to send a notification with automatic quote fetching and payment handling.
+   * Automatically determines the required payment amount and creates the payment if needed.
+   * 
+   * @example
+   * // Send notification (auto-determines payment needed)
+   * await client.sendNotification('03def456...', 'Hello!')
+   * 
+   * // Send with maximum payment limit for safety
+   * await client.sendNotification('03def456...', { title: 'Alert', body: 'Important update' }, 50)
+   */
+  async sendNotification(
+    recipient: PubKeyHex,
+    body: string | object,
+    maxPayment?: number, // Might not be needed because DSAP already handles this.
+    overrideHost?: string
+  ): Promise<SendMessageResponse> {
+    await this.assertInitialized()
+
+    // 1. Get quote to determine required payment (without specifying payment amount)
+    const quote = await this.getMessageBoxQuote({
+      recipient,
+      messageBox: 'notifications',
+      host: overrideHost
+    })
+
+    Logger.log(`[MB CLIENT] Notification quote: ${JSON.stringify(quote)}`)
+
+    if (!quote.allowed) {
+      throw new Error(`Notification blocked: ${quote.blockedReason || 'Permission denied'}`)
+    }
+
+    // 2. Check if payment required exceeds maxPayment limit
+    if (quote.requiresPayment && maxPayment !== undefined && quote.totalCost > maxPayment) {
+      throw new Error(`Payment required (${quote.totalCost} sats) exceeds maximum willing to pay (${maxPayment} sats)`)
+    }
+
+    // 3. Create payment if required
+    const paymentData = await this.createMessagePayment(recipient, quote, 'Notification delivery payment')
+
+    // 4. Prepare message body with payment if required
+    let messageBody: any = body
+    if (paymentData.amount > 0) {
+      messageBody = {
+        ...((typeof body === 'object' && body) || { content: body }),
+        payment: paymentData
+      }
+    }
+
+    // 4. Send the notification message
+    return this.sendMessage({
+      recipient,
+      messageBox: 'notifications',
+      body: messageBody
+    }, overrideHost)
+  }
+
+  // ===========================
+  // PRIVATE HELPER METHODS
+  // ===========================
+
+  private mapToPermissionStatus(permission: any): PermissionStatus {
+    const fee = permission.recipient_fee
+    return {
+      allowed: fee !== 0,
+      recipientFee: fee,
+      status: this.getStatusFromFee(fee),
+      ...(fee > 0 && { requiredPayment: fee })
+    }
+  }
+
+  private getStatusFromFee(fee: number): 'always_allow' | 'blocked' | 'payment_required' {
+    if (fee === -1) return 'always_allow'
+    if (fee === 0) return 'blocked'
+    return 'payment_required'
+  }
+
+  /**
+   * Creates payment transaction for message delivery fees
+   * TODO: Consider consolidating payment generating logic with a util PeerPayClient can use as well.
+   * @private
+   * @param {string} recipient - Recipient identity key 
+   * @param {MessageBoxQuote} quote - Fee quote with delivery and recipient fees
+   * @param {string} description - Description for the payment transaction
+   * @returns {Promise<PaymentData>} Payment transaction data
+   */
+  private async createMessagePayment(
+    recipient: string,
+    quote: MessageBoxQuote,
+    description: string = 'MessageBox delivery payment',
+    hostOverride?: string,
+  ): Promise<PaymentData> {
+    if (!quote.requiresPayment || quote.totalCost <= 0) {
+      throw new Error('No payment required')
+    }
+
+    Logger.log(`[MB CLIENT] Creating payment transaction for ${quote.totalCost} sats (delivery: ${quote.deliveryFee}, recipient: ${quote.recipientFee})`)
+
+    const outputs = []
+
+    // Generate derivation paths using correct nonce function
+    const derivationPrefix = await createNonce(this.walletClient)
+    const derivationSuffix = await createNonce(this.walletClient)
+
+    // Add server delivery fee output if > 0
+    if (quote.deliveryFee > 0) {
+      // Get host's derived public key
+      const { publicKey: derivedKeyResult } = await this.walletClient.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: hostOverride ?? this.host
+      })
+
+      if (derivedKeyResult == null || derivedKeyResult.trim() === '') {
+        throw new Error('Failed to derive host\'s public key')
+      }
+
+      // Create locking script using host's public key
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
+      outputs.push({
+        satoshis: quote.deliveryFee,
+        lockingScript,
+        outputDescription: 'MessageBox server delivery fee'
+      })
+    }
+
+    // Add recipient fee output if > 0
+    if (quote.recipientFee > 0) {
+      // Get recipient's derived public key
+      const { publicKey: derivedKeyResult } = await this.walletClient.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: recipient
+      })
+
+      if (derivedKeyResult == null || derivedKeyResult.trim() === '') {
+        throw new Error('Failed to derive recipient\'s public key')
+      }
+
+      // Create locking script using recipient's public key
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
+      outputs.push({
+        satoshis: quote.recipientFee,
+        lockingScript,
+        outputDescription: 'MessageBox recipient fee'
+      })
+    }
+
+    const { tx } = await this.walletClient.createAction({
+      description,
+      outputs,
+      options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
+    })
+
+    return {
+      amount: quote.totalCost,
+      deliveryFee: quote.deliveryFee,
+      recipientFee: quote.recipientFee,
+      outputs,
+      tx
+    }
   }
 }
