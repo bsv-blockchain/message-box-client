@@ -2,6 +2,8 @@
  * Permission and fee management types for MessageBox system
  */
 
+import { PubKeyHex } from "@bsv/sdk"
+
 /**
  * Parameters for setting message box permissions
  */
@@ -48,14 +50,8 @@ export interface MessageBoxQuote {
   deliveryFee: number
   /** Recipient fee */
   recipientFee: number
-  /** Total cost to send message */
-  totalCost: number
-  /** Whether the message is allowed */
-  allowed: boolean
-  /** Whether payment is required */
-  requiresPayment: boolean
-  /** Reason if blocked */
-  blockedReason?: string
+  /** Delivery agent identity key */
+  deliveryAgentIdentityKey: PubKeyHex
 }
 
 /**
@@ -98,8 +94,6 @@ export interface GetQuoteParams {
   recipient: string
   /** MessageBox type */
   messageBox: string
-  /** Optional payment amount to validate */
-  paymentAmount?: number
   /** Optional host override */
   host?: string
 }

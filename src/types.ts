@@ -1,4 +1,4 @@
-import { AtomicBEEF, Base64String, WalletClient } from '@bsv/sdk'
+import { AtomicBEEF, Base64String, BasketStringUnder300Bytes, BEEF, BooleanDefaultTrue, DescriptionString5to50Bytes, HexString, LabelStringUnder300Bytes, LockingScript, OutputTagStringUnder300Bytes, PositiveIntegerOrZero, PubKeyHex, WalletClient, WalletInterface } from '@bsv/sdk'
 
 /**
  * Configuration options for initializing a MessageBoxClient.
@@ -8,7 +8,7 @@ export interface MessageBoxClientOptions {
    * Wallet instance used for auth, identity, and encryption.
    * If not provided, a new WalletClient will be created.
    */
-  walletClient?: WalletClient
+  walletClient?: WalletInterface
 
   /**
    * Base URL of the MessageBox server.
@@ -64,44 +64,6 @@ export interface SendMessageParams {
   skipEncryption?: boolean
   /** Optional: Enable permission and fee checking (default: false for backwards compatibility) */
   checkPermissions?: boolean
-  /** Optional: Maximum payment willing to make if permissions require payment */
-  maxPayment?: number
-}
-
-/**
- * Payment output with BRC-42 remittance data
- */
-export interface PaymentOutput {
-  /** Output index in transaction */
-  outputIndex: number
-  /** Protocol identifier */
-  protocol: 'wallet payment'
-  /** BRC-42 payment remittance instructions */
-  paymentRemittance: {
-    derivationPrefix: string
-    derivationSuffix: string
-    senderIdentityKey: string
-  }
-  /** Satoshi amount for this output */
-  satoshis: number
-  /** Output description */
-  outputDescription: string
-}
-
-/**
- * Payment transaction data for message delivery fees
- */
-export interface PaymentData {
-  /** Total payment amount in satoshis */
-  amount: number
-  /** Server delivery fee portion */
-  deliveryFee: number
-  /** Recipient fee portion */
-  recipientFee: number
-  /** Transaction outputs with BRC-42 remittance data */
-  outputs: PaymentOutput[]
-  /** BRC-62 AtomicBEEF transaction data */
-  tx?: AtomicBEEF
 }
 
 /**
@@ -145,4 +107,77 @@ export interface ListMessagesParams {
  */
 export interface EncryptedMessage {
   encryptedMessage: Base64String
+}
+
+export interface AdvertisementToken {
+  host: string
+  txid: HexString
+  outputIndex: number
+  lockingScript: LockingScript
+  beef: BEEF
+}
+
+export interface Payment {
+  tx: AtomicBEEF
+  outputs: Array<{
+    outputIndex: PositiveIntegerOrZero
+    protocol: 'wallet payment' | 'basket insertion'
+    paymentRemittance?: {
+      derivationPrefix: Base64String
+      derivationSuffix: Base64String
+      senderIdentityKey: PubKeyHex
+    }
+    insertionRemittance?: {
+      basket: BasketStringUnder300Bytes
+      customInstructions?: string
+      tags?: OutputTagStringUnder300Bytes[]
+    } // No output description?
+  }>
+  description: DescriptionString5to50Bytes
+  labels?: LabelStringUnder300Bytes[]
+  seekPermission?: BooleanDefaultTrue
+}
+
+/**
+ * Device registration parameters for FCM notifications
+ */
+export interface DeviceRegistrationParams {
+  /** FCM token from Firebase SDK */
+  fcmToken: string
+  /** Optional device identifier */
+  deviceId?: string
+  /** Optional platform type */
+  platform?: 'ios' | 'android' | 'web'
+}
+
+/**
+ * Device registration response
+ */
+export interface DeviceRegistrationResponse {
+  status: string
+  message: string
+  deviceId: number
+}
+
+/**
+ * Registered device information
+ */
+export interface RegisteredDevice {
+  id: number
+  deviceId: string | null
+  platform: string | null
+  fcmToken: string // Truncated for security (shows only last 10 characters)
+  active: boolean
+  createdAt: string
+  updatedAt: string
+  lastUsed: string
+}
+
+/**
+ * Response from listing registered devices
+ */
+export interface ListDevicesResponse {
+  status: string
+  devices: RegisteredDevice[]
+  description?: string // For error responses
 }
