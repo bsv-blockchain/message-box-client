@@ -131,7 +131,7 @@ export interface Payment {
       basket: BasketStringUnder300Bytes
       customInstructions?: string
       tags?: OutputTagStringUnder300Bytes[]
-    } // No output description?
+    }
   }>
   description: DescriptionString5to50Bytes
   labels?: LabelStringUnder300Bytes[]

@@ -12,7 +12,7 @@ export interface SetMessageBoxPermissionParams {
   messageBox: string
   /** Optional sender - if omitted, sets box-wide default */
   sender?: string
-  /** Recipient fee: -1=always allow, 0=block all, >0=satoshi amount required */
+  /** Recipient fee: -1=block all, 0=always allow, >0=satoshi amount required */
   recipientFee: number
 }
 

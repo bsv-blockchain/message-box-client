@@ -1408,7 +1408,7 @@ export class MessageBoxClient {
    * await client.setMessageBoxPermission({
    *   messageBox: 'notifications',
    *   sender: '03abc123...',
-   *   recipientFee: 0
+   *   recipientFee: -1
    * })
    */
   async setMessageBoxPermission(
@@ -1614,7 +1614,7 @@ export class MessageBoxClient {
    * @method allowNotificationsFromPeer
    * @async
    * @param {PubKeyHex} identityKey - Sender's identity key to allow
-   * @param {number} [recipientFee=-1] - Fee to charge (-1 for always allow)
+   * @param {number} [recipientFee=0] - Fee to charge (0 for always allow)
    * @param {string} [overrideHost] - Optional host override
    * @returns {Promise<void>} Permission status after allowing
    *
@@ -1625,7 +1625,7 @@ export class MessageBoxClient {
    * await client.allowNotificationsFromPeer('03abc123...') // Always allow
    * await client.allowNotificationsFromPeer('03def456...', 5) // Allow for 5 sats
    */
-  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = -1, overrideHost?: string): Promise<void> {
+  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = 0, overrideHost?: string): Promise<void> {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
@@ -1649,7 +1649,7 @@ export class MessageBoxClient {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
-      recipientFee: 0
+      recipientFee: -1
     }, overrideHost)
   }
 
