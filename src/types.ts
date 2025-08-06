@@ -1,4 +1,4 @@
-import { AtomicBEEF, Base64String, BasketStringUnder300Bytes, BEEF, BooleanDefaultTrue, DescriptionString5to50Bytes, HexString, LabelStringUnder300Bytes, LockingScript, OutputTagStringUnder300Bytes, PositiveIntegerOrZero, PubKeyHex, WalletClient, WalletInterface } from '@bsv/sdk'
+import { AtomicBEEF, Base64String, BasketStringUnder300Bytes, BEEF, BooleanDefaultTrue, DescriptionString5to50Bytes, HexString, LabelStringUnder300Bytes, LockingScript, OutputTagStringUnder300Bytes, PositiveIntegerOrZero, PubKeyHex, WalletInterface } from '@bsv/sdk'
 
 /**
  * Configuration options for initializing a MessageBoxClient.

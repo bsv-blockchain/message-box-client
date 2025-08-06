@@ -29,6 +29,24 @@ export interface GetMessageBoxPermissionParams {
 }
 
 /**
+ * Permission response from server
+ */
+export interface MessageBoxPermission {
+  /** Sender identity key (null for box-wide defaults) */
+  sender: string | null
+  /** MessageBox type */
+  messageBox: string
+  /** Recipient fee setting */
+  recipientFee: number
+  /** Permission status derived from recipientFee */
+  status: 'always_allow' | 'blocked' | 'payment_required'
+  /** Creation timestamp */
+  createdAt: string
+  /** Last update timestamp */
+  updatedAt: string
+}
+
+/**
  * Fee quote response
  */
 export interface MessageBoxQuote {
@@ -38,24 +56,6 @@ export interface MessageBoxQuote {
   recipientFee: number
   /** Delivery agent identity key */
   deliveryAgentIdentityKey: PubKeyHex
-}
-
-/**
- * Permission list item
- */
-export interface PermissionListItem {
-  /** Sender identity key (null for box-wide defaults) */
-  sender: string | null
-  /** MessageBox type */
-  messageBox: string
-  /** Recipient fee setting */
-  recipientFee: number
-  /** Permission status */
-  status: 'always_allow' | 'blocked' | 'payment_required'
-  /** Creation timestamp */
-  createdAt: string
-  /** Last update timestamp */
-  updatedAt: string
 }
 
 /**
