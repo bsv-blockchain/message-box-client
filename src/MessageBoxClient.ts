@@ -36,10 +36,11 @@ import {
   PublicKey,
   CreateActionOutput,
   WalletInterface,
-  ProtoWallet
+  ProtoWallet,
+  InternalizeOutput
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
-import { Logger } from './Utils/logger.js'
+import * as Logger from './Utils/logger.js'
 import { AcknowledgeMessageParams, AdvertisementToken, EncryptedMessage, ListMessagesParams, MessageBoxClientOptions, Payment, PeerMessage, SendMessageParams, SendMessageResponse, DeviceRegistrationParams, DeviceRegistrationResponse, RegisteredDevice, ListDevicesResponse } from './types.js'
 import {
   SetMessageBoxPermissionParams,
@@ -115,7 +116,7 @@ export class MessageBoxClient {
    * })
    * await client.init()
    */
-  constructor (options: MessageBoxClientOptions = {}) {
+  constructor(options: MessageBoxClientOptions = {}) {
     const {
       host,
       walletClient,
@@ -165,7 +166,7 @@ export class MessageBoxClient {
    * await client.init()
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
-  async init (targetHost: string = this.host): Promise<void> {
+  async init(targetHost: string = this.host): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
@@ -205,7 +206,7 @@ export class MessageBoxClient {
    *
    * Used automatically by all public methods that require initialization.
    */
-  private async assertInitialized (): Promise<void> {
+  private async assertInitialized(): Promise<void> {
     if (!this.initialized || this.host == null || this.host.trim() === '') {
       await this.init()
     }
@@ -218,7 +219,7 @@ export class MessageBoxClient {
    * Returns a live list of WebSocket rooms the client is subscribed to.
    * Useful for inspecting state or ensuring no duplicates are joined.
    */
-  public getJoinedRooms (): Set<string> {
+  public getJoinedRooms(): Set<string> {
     return this.joinedRooms
   }
 
@@ -229,7 +230,7 @@ export class MessageBoxClient {
  * Returns the client's identity key, used for signing, encryption, and addressing.
  * If not already loaded, it will fetch and cache it.
  */
-  public async getIdentityKey (): Promise<string> {
+  public async getIdentityKey(): Promise<string> {
     if (this.myIdentityKey != null && this.myIdentityKey.trim() !== '') {
       return this.myIdentityKey
     }
@@ -257,7 +258,7 @@ export class MessageBoxClient {
    * Note: Do not interact with the socket directly unless necessary.
    * Use the provided `sendLiveMessage`, `listenForLiveMessages`, and related methods.
    */
-  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
@@ -284,7 +285,7 @@ export class MessageBoxClient {
    * await mb.initializeConnection()
    * // WebSocket is now ready for use
    */
-  async initializeConnection (): Promise<void> {
+  async initializeConnection(): Promise<void> {
     await this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
@@ -385,7 +386,7 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  async resolveHostForRecipient (identityKey: string): Promise<string> {
+  async resolveHostForRecipient(identityKey: string): Promise<string> {
     const advertisementTokens = await this.queryAdvertisements(identityKey)
     if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
@@ -403,7 +404,7 @@ export class MessageBoxClient {
    * @param host?        if passed, only look for adverts anointed at that host
    * @returns            0-length array if nothing valid was found
    */
-  async queryAdvertisements (
+  async queryAdvertisements(
     identityKey?: string,
     host?: string
   ): Promise<AdvertisementToken[]> {
@@ -417,7 +418,7 @@ export class MessageBoxClient {
         query
       })
       if (result.type !== 'output-list') {
-        throw new Error(`Unexpected result type: ${result.type}`)
+        throw new Error(`Unexpected result type: ${String(result.type)}`)
       }
 
       for (const output of result.outputs) {
@@ -467,7 +468,7 @@ export class MessageBoxClient {
    * await client.joinRoom('payment_inbox')
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
-  async joinRoom (messageBox: string): Promise<void> {
+  async joinRoom(messageBox: string): Promise<void> {
     await this.assertInitialized()
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
@@ -526,7 +527,7 @@ export class MessageBoxClient {
    *   onMessage: (msg) => console.log('Received live message:', msg)
    * })
    */
-  async listenForLiveMessages ({
+  async listenForLiveMessages({
     onMessage,
     messageBox
   }: {
@@ -622,7 +623,7 @@ export class MessageBoxClient {
    *   body: { amount: 1000 }
    * })
    */
-  async sendLiveMessage ({
+  async sendLiveMessage({
     recipient,
     messageBox,
     body,
@@ -779,7 +780,7 @@ export class MessageBoxClient {
    * @example
    * await client.leaveRoom('payment_inbox')
    */
-  async leaveRoom (messageBox: string): Promise<void> {
+  async leaveRoom(messageBox: string): Promise<void> {
     await this.assertInitialized()
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
@@ -811,7 +812,7 @@ export class MessageBoxClient {
    * @example
    * await client.disconnectWebSocket()
    */
-  async disconnectWebSocket (): Promise<void> {
+  async disconnectWebSocket(): Promise<void> {
     await this.assertInitialized()
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
@@ -849,7 +850,7 @@ export class MessageBoxClient {
    *   body: { type: 'ping' }
    * })
    */
-  async sendMessage (
+  async sendMessage(
     message: SendMessageParams,
     overrideHost?: string
   ): Promise<SendMessageResponse> {
@@ -1012,7 +1013,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost (host: string): Promise<{ txid: string }> {
+  async anointHost(host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
@@ -1093,7 +1094,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.revokeHost('https://my-messagebox.io')
    */
-  async revokeHostAdvertisement (advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
+  async revokeHostAdvertisement(advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting revokeHost...')
     const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
     try {
@@ -1188,7 +1189,7 @@ export class MessageBoxClient {
    * const messages = await client.listMessages({ messageBox: 'inbox' })
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    */
-  async listMessages ({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
     await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
@@ -1327,7 +1328,7 @@ export class MessageBoxClient {
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage ({ messageIds, host }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds, host }: AcknowledgeMessageParams): Promise<string> {
     await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
@@ -1410,7 +1411,7 @@ export class MessageBoxClient {
    *   recipientFee: 0
    * })
    */
-  async setMessageBoxPermission (
+  async setMessageBoxPermission(
     params: SetMessageBoxPermissionParams,
     overrideHost?: string
   ): Promise<void> {
@@ -1431,7 +1432,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to set permission: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+      throw new Error(`Failed to set permission: HTTP ${response.status} - ${String(errorData.description) !== '' ? String(errorData.description) : response.statusText}`)
     }
 
     const { status, description } = await response.json()
@@ -1458,7 +1459,7 @@ export class MessageBoxClient {
    *   sender: '03abc123...'
    * })
    */
-  async getMessageBoxPermission (
+  async getMessageBoxPermission(
     params: GetMessageBoxPermissionParams,
     overrideHost?: string
   ): Promise<MessageBoxPermission | null> {
@@ -1479,7 +1480,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to get permission: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+      throw new Error(`Failed to get permission: HTTP ${response.status} - ${String(errorData.description) !== '' ? String(errorData.description) : response.statusText}`)
     }
 
     const data = await response.json()
@@ -1505,7 +1506,7 @@ export class MessageBoxClient {
    *   messageBox: 'notifications'
    * })
    */
-  async getMessageBoxQuote (params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
+  async getMessageBoxQuote(params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
     await this.assertInitialized()
 
     const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
@@ -1563,7 +1564,7 @@ export class MessageBoxClient {
    *   offset: 0
    * })
    */
-  async listMessageBoxPermissions (params?: ListPermissionsParams, overrideHost?: string): Promise<MessageBoxPermission[]> {
+  async listMessageBoxPermissions(params?: ListPermissionsParams, overrideHost?: string): Promise<MessageBoxPermission[]> {
     await this.assertInitialized()
 
     const finalHost = overrideHost ?? this.host
@@ -1587,7 +1588,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to list permissions: HTTP ${response.status} - ${errorData.description || response.statusText}`)
+      throw new Error(`Failed to list permissions: HTTP ${response.status} - ${String(errorData.description) !== '' ? String(errorData.description) : response.statusText}`)
     }
 
     const data = await response.json()
@@ -1624,7 +1625,7 @@ export class MessageBoxClient {
    * await client.allowNotificationsFromPeer('03abc123...') // Always allow
    * await client.allowNotificationsFromPeer('03def456...', 5) // Allow for 5 sats
    */
-  async allowNotificationsFromPeer (identityKey: PubKeyHex, recipientFee: number = -1, overrideHost?: string): Promise<void> {
+  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = -1, overrideHost?: string): Promise<void> {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
@@ -1644,7 +1645,7 @@ export class MessageBoxClient {
    * @example
    * await client.denyNotificationsFromPeer('03spam123...')
    */
-  async denyNotificationsFromPeer (identityKey: PubKeyHex, overrideHost?: string): Promise<void> {
+  async denyNotificationsFromPeer(identityKey: PubKeyHex, overrideHost?: string): Promise<void> {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
@@ -1665,7 +1666,7 @@ export class MessageBoxClient {
    * const status = await client.checkPeerNotificationStatus('03abc123...')
    * console.log(status.allowed) // true/false
    */
-  async checkPeerNotificationStatus (identityKey: PubKeyHex, overrideHost?: string): Promise<MessageBoxPermission> {
+  async checkPeerNotificationStatus(identityKey: PubKeyHex, overrideHost?: string): Promise<MessageBoxPermission | null> {
     const myIdentityKey = await this.getIdentityKey()
     return await this.getMessageBoxPermission({
       recipient: myIdentityKey,
@@ -1685,7 +1686,7 @@ export class MessageBoxClient {
    * @example
    * const notifications = await client.listPeerNotifications()
    */
-  async listPeerNotifications (overrideHost?: string): Promise<MessageBoxPermission[]> {
+  async listPeerNotifications(overrideHost?: string): Promise<MessageBoxPermission[]> {
     return await this.listMessageBoxPermissions({ messageBox: 'notifications' }, overrideHost)
   }
 
@@ -1708,7 +1709,7 @@ export class MessageBoxClient {
    * // Send with maximum payment limit for safety
    * await client.sendNotification('03def456...', { title: 'Alert', body: 'Important update' }, 50)
    */
-  async sendNotification (
+  async sendNotification(
     recipient: PubKeyHex,
     body: string | object,
     overrideHost?: string
@@ -1744,7 +1745,7 @@ export class MessageBoxClient {
    *   deviceId: 'iPhone15Pro'
    * })
    */
-  async registerDevice (
+  async registerDevice(
     params: DeviceRegistrationParams,
     overrideHost?: string
   ): Promise<DeviceRegistrationResponse> {
@@ -1776,7 +1777,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      const description = errorData.description ?? response.statusText
+      const description = String(errorData.description) ?? response.statusText
       throw new Error(`Failed to register device: HTTP ${response.status} - ${description}`)
     }
 
@@ -1811,7 +1812,7 @@ export class MessageBoxClient {
    *   console.log(`Device: ${device.platform} - ${device.fcmToken}`)
    * })
    */
-  async listRegisteredDevices (
+  async listRegisteredDevices(
     overrideHost?: string
   ): Promise<RegisteredDevice[]> {
     await this.assertInitialized()
@@ -1826,7 +1827,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      const description = errorData.description ?? response.statusText
+      const description = String(errorData.description) ?? response.statusText
       throw new Error(`Failed to list devices: HTTP ${response.status} - ${description}`)
     }
 
@@ -1843,7 +1844,7 @@ export class MessageBoxClient {
   // PRIVATE HELPER METHODS
   // ===========================
 
-  private static getStatusFromFee (fee: number): 'always_allow' | 'blocked' | 'payment_required' {
+  private static getStatusFromFee(fee: number): 'always_allow' | 'blocked' | 'payment_required' {
     if (fee === -1) return 'blocked'
     if (fee === 0) return 'always_allow'
     return 'payment_required'
@@ -1858,7 +1859,7 @@ export class MessageBoxClient {
    * @param {string} description - Description for the payment transaction
    * @returns {Promise<Payment>} Payment transaction data
    */
-  private async createMessagePayment (
+  private async createMessagePayment(
     recipient: string,
     quote: MessageBoxQuote,
     description: string = 'MessageBox delivery payment'
@@ -1869,7 +1870,7 @@ export class MessageBoxClient {
 
     Logger.log(`[MB CLIENT] Creating payment transaction for ${quote.recipientFee} sats (delivery: ${quote.deliveryFee}, recipient: ${quote.recipientFee})`)
 
-    const outputs = []
+    const outputs: InternalizeOutput[] = []
     const createActionOutputs: CreateActionOutput[] = []
 
     // Generate derivation paths using correct nonce function
@@ -1954,6 +1955,10 @@ export class MessageBoxClient {
       outputs: createActionOutputs,
       options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
     })
+
+    if (tx == null) {
+      throw new Error('Failed to create payment transaction')
+    }
 
     return {
       tx,
