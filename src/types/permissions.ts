@@ -2,7 +2,7 @@
  * Permission and fee management types for MessageBox system
  */
 
-import { PubKeyHex } from "@bsv/sdk"
+import { PubKeyHex } from '@bsv/sdk'
 
 /**
  * Parameters for setting message box permissions
@@ -26,20 +26,6 @@ export interface GetMessageBoxPermissionParams {
   messageBox: string
   /** Optional sender - if omitted, gets box-wide default */
   sender?: string
-}
-
-/**
- * Permission status response
- */
-export interface PermissionStatus {
-  /** Whether messages are allowed */
-  allowed: boolean
-  /** Current recipient fee setting */
-  recipientFee: number
-  /** Description of permission status */
-  status: 'always_allow' | 'blocked' | 'payment_required'
-  /** Required payment amount if payment_required */
-  requiredPayment?: number
 }
 
 /**
@@ -78,8 +64,6 @@ export interface PermissionListItem {
 export interface ListPermissionsParams {
   /** Optional messageBox filter */
   messageBox?: string
-  /** Optional host override */
-  host?: string
   /** Optional pagination limit */
   limit?: number
   /** Optional pagination offset */
@@ -94,6 +78,4 @@ export interface GetQuoteParams {
   recipient: string
   /** MessageBox type */
   messageBox: string
-  /** Optional host override */
-  host?: string
 }

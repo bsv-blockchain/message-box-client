@@ -35,7 +35,8 @@ import {
   P2PKH,
   PublicKey,
   CreateActionOutput,
-  WalletInterface
+  WalletInterface,
+  ProtoWallet
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import { Logger } from './Utils/logger.js'
@@ -1405,7 +1406,7 @@ export class MessageBoxClient {
   async setMessageBoxPermission(
     params: SetMessageBoxPermissionParams,
     overrideHost?: string
-  ): Promise<{ status: string, description: string }> {
+  ): Promise<void> {
     await this.assertInitialized()
     const finalHost = overrideHost ?? this.host
 
@@ -1430,9 +1431,6 @@ export class MessageBoxClient {
     if (status === 'error') {
       throw new Error(description ?? 'Failed to set permission')
     }
-
-    // Note: Determine what response status is most useful
-    return { status, description }
   }
 
   /**
@@ -1499,10 +1497,10 @@ export class MessageBoxClient {
    *   messageBox: 'notifications'
    * })
    */
-  async getMessageBoxQuote(params: GetQuoteParams): Promise<MessageBoxQuote> {
+  async getMessageBoxQuote(params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
     await this.assertInitialized()
 
-    const finalHost = params.host ?? await this.resolveHostForRecipient(params.recipient)
+    const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
     const queryParams = new URLSearchParams({
       recipient: params.recipient,
       messageBox: params.messageBox
@@ -1557,10 +1555,10 @@ export class MessageBoxClient {
    *   offset: 0
    * })
    */
-  async listMessageBoxPermissions(params?: ListPermissionsParams): Promise<PermissionListItem[]> {
+  async listMessageBoxPermissions(params?: ListPermissionsParams, overrideHost?: string): Promise<PermissionListItem[]> {
     await this.assertInitialized()
 
-    const finalHost = params?.host ?? this.host
+    const finalHost = overrideHost ?? this.host
     const queryParams = new URLSearchParams()
 
     if (params?.messageBox != null) {
@@ -1608,6 +1606,7 @@ export class MessageBoxClient {
    * @async
    * @param {PubKeyHex} identityKey - Sender's identity key to allow
    * @param {number} [recipientFee=-1] - Fee to charge (-1 for always allow)
+   * @param {string} [overrideHost] - Optional host override
    * @returns {Promise<PermissionStatus>} Permission status after allowing
    *
    * @description
@@ -1617,12 +1616,12 @@ export class MessageBoxClient {
    * await client.allowNotificationsFromPeer('03abc123...') // Always allow
    * await client.allowNotificationsFromPeer('03def456...', 5) // Allow for 5 sats
    */
-  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = -1): Promise<PermissionStatus> {
-    return await this.setMessageBoxPermission({
+  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = -1, overrideHost?: string): Promise<void> {
+    await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
       recipientFee
-    })
+    }, overrideHost)
   }
 
   /**
@@ -1637,12 +1636,12 @@ export class MessageBoxClient {
    * @example
    * await client.denyNotificationsFromPeer('03spam123...')
    */
-  async denyNotificationsFromPeer(identityKey: PubKeyHex): Promise<PermissionStatus> {
-    return await this.setMessageBoxPermission({
+  async denyNotificationsFromPeer(identityKey: PubKeyHex, overrideHost?: string): Promise<void> {
+    await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
       recipientFee: 0
-    })
+    }, overrideHost)
   }
 
   /**
@@ -1658,13 +1657,13 @@ export class MessageBoxClient {
    * const status = await client.checkPeerNotificationStatus('03abc123...')
    * console.log(status.allowed) // true/false
    */
-  async checkPeerNotificationStatus(identityKey: PubKeyHex): Promise<PermissionStatus> {
+  async checkPeerNotificationStatus(identityKey: PubKeyHex, overrideHost?: string): Promise<PermissionStatus> {
     const myKey = await this.getIdentityKey()
     return await this.getMessageBoxPermission({
       recipient: myKey,
       messageBox: 'notifications',
       sender: identityKey
-    })
+    }, overrideHost)
   }
 
   /**
@@ -1678,8 +1677,8 @@ export class MessageBoxClient {
    * @example
    * const notifications = await client.listPeerNotifications()
    */
-  async listPeerNotifications(): Promise<PermissionListItem[]> {
-    return await this.listMessageBoxPermissions({ messageBox: 'notifications' })
+  async listPeerNotifications(overrideHost?: string): Promise<PermissionListItem[]> {
+    return await this.listMessageBoxPermissions({ messageBox: 'notifications' }, overrideHost)
   }
 
   /**
@@ -1743,13 +1742,13 @@ export class MessageBoxClient {
   ): Promise<DeviceRegistrationResponse> {
     await this.assertInitialized()
 
-    if (!params.fcmToken || params.fcmToken.trim() === '') {
+    if (params.fcmToken == null || params.fcmToken.trim() === '') {
       throw new Error('fcmToken is required and must be a non-empty string')
     }
 
     // Validate platform if provided
     const validPlatforms = ['ios', 'android', 'web']
-    if (params.platform && !validPlatforms.includes(params.platform)) {
+    if (params.platform != null && !validPlatforms.includes(params.platform)) {
       throw new Error('platform must be one of: ios, android, web')
     }
 
@@ -1762,14 +1761,14 @@ export class MessageBoxClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         fcmToken: params.fcmToken.trim(),
-        deviceId: params.deviceId?.trim() || undefined,
-        platform: params.platform || undefined
+        deviceId: params.deviceId?.trim() ?? undefined,
+        platform: params.platform ?? undefined
       })
     })
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      const description = errorData.description || response.statusText
+      const description = errorData.description ?? response.statusText
       throw new Error(`Failed to register device: HTTP ${response.status} - ${description}`)
     }
 
@@ -1819,7 +1818,7 @@ export class MessageBoxClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      const description = errorData.description || response.statusText
+      const description = errorData.description ?? response.statusText
       throw new Error(`Failed to list devices: HTTP ${response.status} - ${description}`)
     }
 
@@ -1839,9 +1838,8 @@ export class MessageBoxClient {
   private mapToPermissionStatus(permission: any): PermissionStatus {
     const fee = permission.recipientFee
     return {
-      allowed: fee !== 0,
-      recipientFee: fee,
       status: this.getStatusFromFee(fee),
+      description: this.getStatusFromFee(fee),
       ...(fee > 0 && { requiredPayment: fee })
     }
   }
@@ -1906,7 +1904,6 @@ export class MessageBoxClient {
         outputDescription: 'MessageBox server delivery fee'
       })
 
-      // Add to BRC-42 remittance outputs
       outputs.push({
         outputIndex: outputIndex++,
         protocol: 'wallet payment',
@@ -1914,17 +1911,15 @@ export class MessageBoxClient {
           derivationPrefix,
           derivationSuffix,
           senderIdentityKey
-        },
-        // satoshis: quote.deliveryFee,
-        // outputDescription: 'MessageBox server delivery fee'
+        }
       })
     }
 
     // Add recipient fee output if > 0
     if (quote.recipientFee > 0) {
-      // Get a derived public for the recipient
-      // const anyoneWallet = new ProtoWallet('anyone')
-      const { publicKey: derivedKeyResult } = await this.walletClient.getPublicKey({
+      // Get a derived public key for the recipient that "anyone" can verify
+      const anyoneWallet = new ProtoWallet('anyone')
+      const { publicKey: derivedKeyResult } = await anyoneWallet.getPublicKey({
         protocolID: [2, '3241645161d8'],
         keyID: `${derivationPrefix} ${derivationSuffix}`,
         counterparty: recipient
@@ -1941,10 +1936,9 @@ export class MessageBoxClient {
       createActionOutputs.push({
         satoshis: quote.recipientFee,
         lockingScript,
-        outputDescription: 'MessageBox recipient fee'
+        outputDescription: 'Recipient message fee'
       })
 
-      // Add to BRC-42 remittance outputs
       outputs.push({
         outputIndex: outputIndex++,
         protocol: 'wallet payment',
@@ -1952,7 +1946,7 @@ export class MessageBoxClient {
           derivationPrefix,
           derivationSuffix,
           senderIdentityKey
-        } // No output description supported?
+        }
       })
     }
 
@@ -1964,8 +1958,8 @@ export class MessageBoxClient {
 
     return {
       tx,
-      outputs, // BRC-42 remittance outputs
-      description,
+      outputs,
+      description
       // labels
     }
   }
