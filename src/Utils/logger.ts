@@ -1,27 +1,25 @@
-export class Logger {
-  private static isEnabled = false
+let isEnabled = false
 
-  static enable (): void {
-    this.isEnabled = true
-  }
+export function enable (): void {
+  isEnabled = true
+}
 
-  static disable (): void {
-    this.isEnabled = false
-  }
+export function disable (): void {
+  isEnabled = false
+}
 
-  static log (...args: unknown[]): void {
-    if (this.isEnabled) {
-      console.log(...args)
-    }
+export function log (...args: unknown[]): void {
+  if (isEnabled) {
+    console.log(...args)
   }
+}
 
-  static warn (...args: unknown[]): void {
-    if (this.isEnabled) {
-      console.warn(...args)
-    }
+export function warn (...args: unknown[]): void {
+  if (isEnabled) {
+    console.warn(...args)
   }
+}
 
-  static error (...args: unknown[]): void {
-    console.error(...args)
-  }
+export function error (...args: unknown[]): void {
+  console.error(...args)
 }
