@@ -37,7 +37,8 @@ import {
   CreateActionOutput,
   WalletInterface,
   ProtoWallet,
-  InternalizeOutput
+  InternalizeOutput,
+  Random
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import * as Logger from './Utils/logger.js'
@@ -1873,26 +1874,21 @@ export class MessageBoxClient {
     const outputs: InternalizeOutput[] = []
     const createActionOutputs: CreateActionOutput[] = []
 
-    // Generate derivation paths using correct nonce function
-    const derivationPrefix = await createNonce(this.walletClient)
-    const derivationSuffix = await createNonce(this.walletClient)
-
     // Get sender identity key for remittance data
     const senderIdentityKey = await this.getIdentityKey()
 
     // Add server delivery fee output if > 0
     let outputIndex = 0
     if (quote.deliveryFee > 0) {
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
+
       // Get host's derived public key
       const { publicKey: derivedKeyResult } = await this.walletClient.getPublicKey({
         protocolID: [2, '3241645161d8'],
         keyID: `${derivationPrefix} ${derivationSuffix}`,
         counterparty: quote.deliveryAgentIdentityKey
       })
-
-      if (derivedKeyResult == null || derivedKeyResult.trim() === '') {
-        throw new Error('Failed to derive host\'s public key')
-      }
 
       // Create locking script using host's public key
       const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
@@ -1901,7 +1897,12 @@ export class MessageBoxClient {
       createActionOutputs.push({
         satoshis: quote.deliveryFee,
         lockingScript,
-        outputDescription: 'MessageBox server delivery fee'
+        outputDescription: 'MessageBox server delivery fee',
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: quote.deliveryAgentIdentityKey
+        })
       })
 
       outputs.push({
@@ -1917,6 +1918,8 @@ export class MessageBoxClient {
 
     // Add recipient fee output if > 0
     if (quote.recipientFee > 0) {
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
       // Get a derived public key for the recipient that "anyone" can verify
       const anyoneWallet = new ProtoWallet('anyone')
       const { publicKey: derivedKeyResult } = await anyoneWallet.getPublicKey({
@@ -1936,7 +1939,12 @@ export class MessageBoxClient {
       createActionOutputs.push({
         satoshis: quote.recipientFee,
         lockingScript,
-        outputDescription: 'Recipient message fee'
+        outputDescription: 'Recipient message fee',
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: recipient
+        })
       })
 
       outputs.push({
