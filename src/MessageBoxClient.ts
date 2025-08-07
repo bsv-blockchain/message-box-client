@@ -1179,9 +1179,16 @@ export class MessageBoxClient {
    *
    * Each message is:
    * - Parsed and, if encrypted, decrypted using AES-256-GCM via BRC-2-compliant ECDH key derivation and symmetric encryption.
+   * - Automatically processed for payments: if the message includes recipient fee payments, they are internalized using `walletClient.internalizeAction()`.
    * - Returned as a normalized `PeerMessage` with readable string body content.
    *
-   * Decryption automatically derives a shared secret using the sender’s identity key and the receiver’s child private key.
+   * Payment Processing:
+   * - Detects messages that include payment data (from paid message delivery).
+   * - Automatically internalizes recipient payment outputs, allowing you to receive payments without additional API calls.
+   * - Only recipient payments are stored with messages - delivery fees are already processed by the server.
+   * - Continues processing messages even if payment internalization fails.
+   *
+   * Decryption automatically derives a shared secret using the sender's identity key and the receiver's child private key.
    * If the sender is the same as the recipient, the `counterparty` is set to `'self'`.
    *
    * @throws {Error} If no messageBox is specified, the request fails, or the server returns an error.
@@ -1189,6 +1196,7 @@ export class MessageBoxClient {
    * @example
    * const messages = await client.listMessages({ messageBox: 'inbox' })
    * messages.forEach(msg => console.log(msg.sender, msg.body))
+   * // Payments included with messages are automatically received
    */
   async listMessages({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
     await this.assertInitialized()
@@ -1266,10 +1274,70 @@ export class MessageBoxClient {
         const parsedBody: unknown =
           typeof message.body === 'string' ? tryParse(message.body) : message.body
 
+        let messageContent: any = parsedBody
+        let paymentData: Payment | undefined
+
         if (
           parsedBody != null &&
           typeof parsedBody === 'object' &&
-          typeof (parsedBody as any).encryptedMessage === 'string'
+          'message' in parsedBody
+        ) {
+          messageContent = (parsedBody as any).message?.body
+          paymentData = (parsedBody as any).payment
+        }
+
+        // Process payment if present - server now only stores recipient payments
+        if (paymentData?.tx != null && paymentData.outputs != null) {
+          try {
+            Logger.log(
+              `[MB CLIENT] Processing recipient payment in message from ${String(message.sender)}…`
+            )
+
+            // All outputs in the stored payment data are for the recipient
+            // (delivery fees are already processed by the server)
+            const recipientOutputs = paymentData.outputs.filter(
+              output => output.protocol === 'wallet payment'
+            )
+
+            if (recipientOutputs.length > 0) {
+              Logger.log(
+                `[MB CLIENT] Internalizing ${recipientOutputs.length} recipient payment output(s)…`
+              )
+
+              const internalizeResult = await this.walletClient.internalizeAction({
+                tx: paymentData.tx,
+                outputs: recipientOutputs,
+                description: paymentData.description ?? 'MessageBox recipient payment'
+              })
+
+              if (internalizeResult.accepted) {
+                Logger.log(
+                  '[MB CLIENT] Successfully internalized recipient payment'
+                )
+              } else {
+                Logger.warn(
+                  '[MB CLIENT] Recipient payment internalization was not accepted'
+                )
+              }
+            } else {
+              Logger.log(
+                '[MB CLIENT] No wallet payment outputs found in payment data'
+              )
+            }
+          } catch (paymentError) {
+            Logger.error(
+              '[MB CLIENT ERROR] Failed to internalize recipient payment:',
+              paymentError
+            )
+            // Continue processing the message even if payment fails
+          }
+        }
+
+        // Handle message decryption
+        if (
+          messageContent != null &&
+          typeof messageContent === 'object' &&
+          typeof (messageContent as any).encryptedMessage === 'string'
         ) {
           Logger.log(
             `[MB CLIENT] Decrypting message from ${String(message.sender)}…`
@@ -1280,7 +1348,7 @@ export class MessageBoxClient {
             keyID: '1',
             counterparty: message.sender,
             ciphertext: Utils.toArray(
-              (parsedBody as any).encryptedMessage,
+              (messageContent as any).encryptedMessage,
               'base64'
             )
           })
@@ -1288,7 +1356,10 @@ export class MessageBoxClient {
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          message.body = parsedBody as string | Record<string, any>
+          // Handle both old format (direct content) and new format (message.body)
+          message.body = messageContent != null
+            ? (typeof messageContent === 'string' ? messageContent : messageContent)
+            : (parsedBody as string | Record<string, any>)
         }
       } catch (err) {
         Logger.error(
