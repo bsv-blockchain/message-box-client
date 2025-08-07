@@ -31,7 +31,6 @@ import {
   Transaction,
   PushDrop,
   PubKeyHex,
-  createNonce,
   P2PKH,
   PublicKey,
   CreateActionOutput,
@@ -122,7 +121,8 @@ export class MessageBoxClient {
       host,
       walletClient,
       enableLogging = false,
-      networkPreset = 'mainnet'
+      networkPreset = 'mainnet',
+      originator = undefined
     } = options
 
     const defaultHost =
@@ -132,7 +132,7 @@ export class MessageBoxClient {
 
     this.host = host?.trim() ?? defaultHost
 
-    this.walletClient = walletClient ?? new WalletClient()
+    this.walletClient = walletClient ?? new WalletClient('auto', originator)
     this.authFetch = new AuthFetch(this.walletClient)
     this.networkPreset = networkPreset
 
@@ -149,6 +149,7 @@ export class MessageBoxClient {
    * @method init
    * @async
    * @param {string} [targetHost] - Optional host to set or override the default host.
+   * @param {string} [originator] - Optional originator to use with walletClient.
    * @returns {Promise<void>}
    *
    * @description
@@ -167,7 +168,7 @@ export class MessageBoxClient {
    * await client.init()
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
-  async init(targetHost: string = this.host): Promise<void> {
+  async init(targetHost: string = this.host, originator?: string): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
@@ -182,13 +183,13 @@ export class MessageBoxClient {
     if (this.initialized) return
 
     // 1. Get our identity key
-    const identityKey = await this.getIdentityKey()
+    const identityKey = await this.getIdentityKey(originator)
     // 2. Check for any matching advertisements for the given host
-    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost)
+    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost, originator)
     // 3. If none our found, anoint this host
     if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
-      const { txid } = await this.anointHost(normalizedHost)
+      const { txid } = await this.anointHost(normalizedHost, originator)
       if (txid == null || txid.trim() === '') {
         throw new Error('Failed to anoint host: No transaction ID returned')
       }
@@ -226,19 +227,20 @@ export class MessageBoxClient {
 
   /**
  * @method getIdentityKey
+ * @param {string} [originator] - Optional originator to use for identity key lookup
  * @returns {Promise<string>} The identity public key of the user
  * @description
  * Returns the client's identity key, used for signing, encryption, and addressing.
  * If not already loaded, it will fetch and cache it.
  */
-  public async getIdentityKey(): Promise<string> {
+  public async getIdentityKey(originator?: string): Promise<string> {
     if (this.myIdentityKey != null && this.myIdentityKey.trim() !== '') {
       return this.myIdentityKey
     }
 
     Logger.log('[MB CLIENT] Fetching identity key...')
     try {
-      const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
+      const keyResult = await this.walletClient.getPublicKey({ identityKey: true }, originator)
       this.myIdentityKey = keyResult.publicKey
       Logger.log(`[MB CLIENT] Identity key fetched: ${this.myIdentityKey}`)
       return this.myIdentityKey
@@ -265,6 +267,7 @@ export class MessageBoxClient {
 
   /**
    * @method initializeConnection
+   * @param {string} [originator] - Optional originator to use for authentication.
    * @async
    * @returns {Promise<void>}
    * @description
@@ -286,20 +289,12 @@ export class MessageBoxClient {
    * await mb.initializeConnection()
    * // WebSocket is now ready for use
    */
-  async initializeConnection(): Promise<void> {
+  async initializeConnection(originator?: string): Promise<void> {
     await this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-      Logger.log('[MB CLIENT] Fetching identity key...')
-      try {
-        const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
-        this.myIdentityKey = keyResult.publicKey
-        Logger.log(`[MB CLIENT] Identity key fetched successfully: ${this.myIdentityKey}`)
-      } catch (error) {
-        Logger.error('[MB CLIENT ERROR] Failed to fetch identity key:', error)
-        throw new Error('Identity key retrieval failed')
-      }
+      await this.getIdentityKey(originator)
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -373,6 +368,7 @@ export class MessageBoxClient {
    * @method resolveHostForRecipient
    * @async
    * @param {string} identityKey - The public identity key of the intended recipient.
+   * @param {string} [originator] - The originator to use for the WalletClient.
    * @returns {Promise<string>} - A fully qualified host URL for the recipient's MessageBox server.
    *
    * @description
@@ -387,8 +383,8 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  async resolveHostForRecipient(identityKey: string): Promise<string> {
-    const advertisementTokens = await this.queryAdvertisements(identityKey)
+  async resolveHostForRecipient(identityKey: string, originator?: string): Promise<string> {
+    const advertisementTokens = await this.queryAdvertisements(identityKey, undefined, originator)
     if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
       return this.host
@@ -407,11 +403,12 @@ export class MessageBoxClient {
    */
   async queryAdvertisements(
     identityKey?: string,
-    host?: string
+    host?: string,
+    originator?: string
   ): Promise<AdvertisementToken[]> {
     const hosts: AdvertisementToken[] = []
     try {
-      const query: Record<string, string> = { identityKey: identityKey ?? await this.getIdentityKey() }
+      const query: Record<string, string> = { identityKey: identityKey ?? await this.getIdentityKey(originator) }
       if (host != null && host.trim() !== '') query.host = host
 
       const result = await this.lookupResolver.query({
@@ -530,10 +527,12 @@ export class MessageBoxClient {
    */
   async listenForLiveMessages({
     onMessage,
-    messageBox
+    messageBox,
+    originator
   }: {
     onMessage: (message: PeerMessage) => void
     messageBox: string
+    originator?: string
   }): Promise<void> {
     await this.assertInitialized()
     Logger.log(`[MB CLIENT] Setting up listener for WebSocket room: ${messageBox}`)
@@ -576,7 +575,7 @@ export class MessageBoxClient {
               keyID: '1',
               counterparty: message.sender,
               ciphertext: Utils.toArray((parsedBody as any).encryptedMessage, 'base64')
-            })
+            }, originator)
 
             message.body = Utils.toUTF8(decrypted.plaintext)
           } else {
@@ -630,7 +629,8 @@ export class MessageBoxClient {
     body,
     messageId,
     skipEncryption,
-    checkPermissions
+    checkPermissions,
+    originator
   }: SendMessageParams): Promise<SendMessageResponse> {
     await this.assertInitialized()
     if (recipient == null || recipient.trim() === '') {
@@ -660,7 +660,7 @@ export class MessageBoxClient {
         protocolID: [1, 'messagebox'],
         keyID: '1',
         counterparty: recipient
-      })
+      }, originator)
       finalMessageId = messageId ?? Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
     } catch (error) {
       Logger.error('[MB CLIENT ERROR] Failed to generate HMAC:', error)
@@ -679,7 +679,7 @@ export class MessageBoxClient {
         keyID: '1',
         counterparty: recipient,
         plaintext: Utils.toArray(typeof body === 'string' ? body : JSON.stringify(body), 'utf8')
-      })
+      }, originator)
 
       outgoingBody = JSON.stringify({
         encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext)
@@ -853,7 +853,8 @@ export class MessageBoxClient {
    */
   async sendMessage(
     message: SendMessageParams,
-    overrideHost?: string
+    overrideHost?: string,
+    originator?: string
   ): Promise<SendMessageResponse> {
     await this.assertInitialized()
     if (message.recipient == null || message.recipient.trim() === '') {
@@ -910,7 +911,7 @@ export class MessageBoxClient {
         protocolID: [1, 'messagebox'],
         keyID: '1',
         counterparty: message.recipient
-      })
+      }, originator)
       messageId = message.messageId ?? Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
     } catch (error) {
       Logger.error('[MB CLIENT ERROR] Failed to generate HMAC:', error)
@@ -926,7 +927,7 @@ export class MessageBoxClient {
         keyID: '1',
         counterparty: message.recipient,
         plaintext: Utils.toArray(typeof message.body === 'string' ? message.body : JSON.stringify(message.body), 'utf8')
-      })
+      }, originator)
 
       finalBody = JSON.stringify({ encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext) })
     }
@@ -948,7 +949,7 @@ export class MessageBoxClient {
 
       if (this.myIdentityKey == null || this.myIdentityKey === '') {
         try {
-          const keyResult = await this.walletClient.getPublicKey({ identityKey: true })
+          const keyResult = await this.walletClient.getPublicKey({ identityKey: true }, originator)
           this.myIdentityKey = keyResult.publicKey
           Logger.log(`[MB CLIENT] Fetched identity key before sending request: ${this.myIdentityKey}`)
         } catch (error) {
@@ -1014,14 +1015,14 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost(host: string): Promise<{ txid: string }> {
+  async anointHost(host: string, originator?: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
         throw new Error('Invalid host URL')
       }
 
-      const identityKey = await this.getIdentityKey()
+      const identityKey = await this.getIdentityKey(originator)
 
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
 
@@ -1030,7 +1031,7 @@ export class MessageBoxClient {
         Utils.toArray(host, 'utf8')
       ]
 
-      const pushdrop = new PushDrop(this.walletClient)
+      const pushdrop = new PushDrop(this.walletClient, originator)
       Logger.log('Fields:', fields.map(a => Utils.toHex(a)))
       Logger.log('ProtocolID:', [1, 'messagebox advertisement'])
       Logger.log('KeyID:', '1')
@@ -1056,7 +1057,7 @@ export class MessageBoxClient {
           outputDescription: 'Overlay advertisement output'
         }],
         options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
-      })
+      }, originator)
 
       Logger.log('[MB CLIENT] Transaction created:', txid)
 
@@ -1086,6 +1087,7 @@ export class MessageBoxClient {
    * @method revokeHostAdvertisement
    * @async
    * @param {AdvertisementToken} advertisementToken - The advertisement token containing the messagebox host to revoke.
+   * @param {string} [originator] - Optional originator to use with walletClient.
    * @returns {Promise<{ txid: string }>} - The transaction ID of the revocation broadcast to the overlay network.
    *
    * @description
@@ -1095,7 +1097,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.revokeHost('https://my-messagebox.io')
    */
-  async revokeHostAdvertisement(advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
+  async revokeHostAdvertisement(advertisementToken: AdvertisementToken, originator?: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting revokeHost...')
     const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
     try {
@@ -1109,7 +1111,7 @@ export class MessageBoxClient {
             inputDescription: 'Revoking host advertisement token'
           }
         ]
-      })
+      }, originator)
 
       if (signableTransaction === undefined) {
         throw new Error('Failed to create signable transaction.')
@@ -1118,7 +1120,7 @@ export class MessageBoxClient {
       const partialTx = Transaction.fromBEEF(signableTransaction.tx)
 
       // Prepare the unlocker
-      const pushdrop = new PushDrop(this.walletClient)
+      const pushdrop = new PushDrop(this.walletClient, originator)
       const unlocker = await pushdrop.unlock(
         [1, 'messagebox advertisement'],
         '1',
@@ -1143,7 +1145,7 @@ export class MessageBoxClient {
         options: {
           acceptDelayedBroadcast: false
         }
-      })
+      }, originator)
 
       if (signedTx === undefined) {
         throw new Error('Failed to finalize the transaction signature.')
@@ -1198,7 +1200,7 @@ export class MessageBoxClient {
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    * // Payments included with messages are automatically received
    */
-  async listMessages({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox, host, originator }: ListMessagesParams): Promise<PeerMessage[]> {
     await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
@@ -1206,7 +1208,7 @@ export class MessageBoxClient {
 
     let hosts: string[] = host != null ? [host] : []
     if (hosts.length === 0) {
-      const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey())
+      const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey(originator), originator)
       hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
@@ -1282,7 +1284,11 @@ export class MessageBoxClient {
           typeof parsedBody === 'object' &&
           'message' in parsedBody
         ) {
-          messageContent = (parsedBody as any).message?.body
+          // Handle wrapped message format (with payment data)
+          const wrappedMessage = (parsedBody as any).message
+          messageContent = typeof wrappedMessage === 'string'
+            ? tryParse(wrappedMessage)
+            : wrappedMessage
           paymentData = (parsedBody as any).payment
         }
 
@@ -1308,7 +1314,7 @@ export class MessageBoxClient {
                 tx: paymentData.tx,
                 outputs: recipientOutputs,
                 description: paymentData.description ?? 'MessageBox recipient payment'
-              })
+              }, originator)
 
               if (internalizeResult.accepted) {
                 Logger.log(
@@ -1348,18 +1354,16 @@ export class MessageBoxClient {
             keyID: '1',
             counterparty: message.sender,
             ciphertext: Utils.toArray(
-              (messageContent as any).encryptedMessage,
+              messageContent.encryptedMessage,
               'base64'
             )
-          })
+          }, originator)
 
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          // Handle both old format (direct content) and new format (message.body)
-          message.body = messageContent != null
-            ? (typeof messageContent === 'string' ? messageContent : messageContent)
-            : (parsedBody as string | Record<string, any>)
+          // For non-encrypted messages, use the processed content
+          message.body = messageContent ?? parsedBody
         }
       } catch (err) {
         Logger.error(
@@ -1400,7 +1404,7 @@ export class MessageBoxClient {
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage({ messageIds, host }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage({ messageIds, host, originator }: AcknowledgeMessageParams): Promise<string> {
     await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
@@ -1411,8 +1415,8 @@ export class MessageBoxClient {
     let hosts: string[] = host != null ? [host] : []
     if (hosts.length === 0) {
       // 1. Determine all hosts (advertised + default)
-      const identityKey = await this.getIdentityKey()
-      const advertisedHosts = await this.queryAdvertisements(identityKey)
+      const identityKey = await this.getIdentityKey(originator)
+      const advertisedHosts = await this.queryAdvertisements(identityKey, undefined, originator)
       hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
@@ -1934,7 +1938,8 @@ export class MessageBoxClient {
   private async createMessagePayment(
     recipient: string,
     quote: MessageBoxQuote,
-    description: string = 'MessageBox delivery payment'
+    description: string = 'MessageBox delivery payment',
+    originator?: string
   ): Promise<Payment> {
     if (quote.recipientFee <= 0 && quote.deliveryFee <= 0) {
       throw new Error('No payment required')
@@ -1959,7 +1964,7 @@ export class MessageBoxClient {
         protocolID: [2, '3241645161d8'],
         keyID: `${derivationPrefix} ${derivationSuffix}`,
         counterparty: quote.deliveryAgentIdentityKey
-      })
+      }, originator)
 
       // Create locking script using host's public key
       const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
@@ -2024,7 +2029,7 @@ export class MessageBoxClient {
         paymentRemittance: {
           derivationPrefix,
           derivationSuffix,
-          senderIdentityKey
+          senderIdentityKey: (await anyoneWallet.getPublicKey({ identityKey: true })).publicKey
         }
       })
     }
@@ -2033,7 +2038,7 @@ export class MessageBoxClient {
       description,
       outputs: createActionOutputs,
       options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
-    })
+    }, originator)
 
     if (tx == null) {
       throw new Error('Failed to create payment transaction')
