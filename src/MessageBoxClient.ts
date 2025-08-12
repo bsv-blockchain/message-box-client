@@ -1388,6 +1388,70 @@ export class MessageBoxClient {
     return messages
   }
 
+  async listMessagesLite ({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
+    const res = await this.authFetch.fetch(`${host as string}/listMessages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageBox })
+    })
+    const data = await res.json()
+    if (data.status === 'error') throw new Error(data.description ?? 'Unknown server error')
+    const messages = data.messages as PeerMessage[]
+    const tryParse = (raw: string): any => {
+      try {
+        return JSON.parse(raw)
+      } catch {
+        return raw
+      }
+    }
+    for (const message of messages) {
+      try {
+        const parsedBody: unknown =
+          typeof message.body === 'string' ? tryParse(message.body) : message.body
+        let messageContent: any = parsedBody
+        if (
+          parsedBody != null &&
+          typeof parsedBody === 'object' &&
+          'message' in parsedBody
+        ) {
+          // Handle wrapped message format (with payment data)
+          const wrappedMessage = (parsedBody as any).message
+          messageContent = typeof wrappedMessage === 'string'
+            ? tryParse(wrappedMessage)
+            : wrappedMessage
+        }
+        // Handle message decryption
+        if (
+          messageContent != null &&
+          typeof messageContent === 'object' &&
+          typeof messageContent.encryptedMessage === 'string'
+        ) {
+          const decrypted = await this.walletClient.decrypt({
+            protocolID: [1, 'messagebox'],
+            keyID: '1',
+            counterparty: message.sender,
+            ciphertext: Utils.toArray(
+              messageContent.encryptedMessage,
+              'base64'
+            )
+          })
+          const decryptedText = Utils.toUTF8(decrypted.plaintext)
+          message.body = tryParse(decryptedText)
+        } else {
+          // For non-encrypted messages, use the processed content
+          message.body = messageContent ?? parsedBody
+        }
+      } catch (err) {
+        Logger.error(
+          '[MB CLIENT ERROR] Failed to parse or decrypt message in list:',
+          err
+        )
+        message.body = '[Error: Failed to decrypt or parse message]'
+      }
+    }
+    return messages
+  }
+
   /**
    * @method acknowledgeMessage
    * @async
