@@ -1202,7 +1202,7 @@ export class MessageBoxClient {
    */
   async listMessages({ messageBox, host, originator, acceptPayments }: ListMessagesParams): Promise<PeerMessage[]> {
     if (typeof acceptPayments !== 'boolean') {
-      acceptPayments = false
+      acceptPayments = true
     }
     await this.assertInitialized()
     if (messageBox.trim() === '') {
