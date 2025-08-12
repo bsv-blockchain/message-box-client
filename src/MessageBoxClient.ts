@@ -1200,7 +1200,10 @@ export class MessageBoxClient {
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    * // Payments included with messages are automatically received
    */
-  async listMessages({ messageBox, host, originator }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages({ messageBox, host, originator, acceptPayments }: ListMessagesParams): Promise<PeerMessage[]> {
+    if (typeof acceptPayments !== 'boolean') {
+      acceptPayments = true
+    }
     await this.assertInitialized()
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
@@ -1293,7 +1296,7 @@ export class MessageBoxClient {
         }
 
         // Process payment if present - server now only stores recipient payments
-        if (paymentData?.tx != null && paymentData.outputs != null) {
+        if (acceptPayments && paymentData?.tx != null && paymentData.outputs != null) {
           try {
             Logger.log(
               `[MB CLIENT] Processing recipient payment in message from ${String(message.sender)}…`

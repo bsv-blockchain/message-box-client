@@ -108,6 +108,7 @@ export interface ListMessagesParams {
   messageBox: string
   host?: string
   originator?: string
+  acceptPayments?: boolean
 }
 
 /**
