@@ -877,7 +877,7 @@ export class MessageBoxClient {
         const quote = await this.getMessageBoxQuote({
           recipient: message.recipient,
           messageBox: message.messageBox
-        })
+        }, overrideHost)
 
         if (quote.recipientFee === -1) {
           throw new Error('You have been blocked from sending messages to this recipient.')
@@ -1200,11 +1200,13 @@ export class MessageBoxClient {
    * messages.forEach(msg => console.log(msg.sender, msg.body))
    * // Payments included with messages are automatically received
    */
-  async listMessages({ messageBox, host, originator, acceptPayments }: ListMessagesParams): Promise<PeerMessage[]> {
+  async listMessages ({ messageBox, host, originator, acceptPayments }: ListMessagesParams): Promise<PeerMessage[]> {
     if (typeof acceptPayments !== 'boolean') {
       acceptPayments = true
     }
-    await this.assertInitialized()
+    if (typeof host !== 'string') {
+      await this.assertInitialized()
+    }
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
     }
