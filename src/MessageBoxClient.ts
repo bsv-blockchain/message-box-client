@@ -1587,6 +1587,7 @@ export class MessageBoxClient {
         return false
       }
     }
+    return false
   }
 
   /**
