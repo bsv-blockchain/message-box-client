@@ -1266,20 +1266,12 @@ export class MessageBoxClient {
     // 6. Early‑out: no messages but at least one host succeeded → []
     if (dedupMap.size === 0) return []
 
-    const tryParse = (raw: string): any => {
-      try {
-        return JSON.parse(raw)
-      } catch {
-        return raw
-      }
-    }
-
     const messages: PeerMessage[] = Array.from(dedupMap.values())
 
     for (const message of messages) {
       try {
         const parsedBody: unknown =
-          typeof message.body === 'string' ? tryParse(message.body) : message.body
+          typeof message.body === 'string' ? this.tryParse(message.body) : message.body
 
         let messageContent: any = parsedBody
         let paymentData: Payment | undefined
@@ -1292,7 +1284,7 @@ export class MessageBoxClient {
           // Handle wrapped message format (with payment data)
           const wrappedMessage = (parsedBody as any).message
           messageContent = typeof wrappedMessage === 'string'
-            ? tryParse(wrappedMessage)
+            ? this.tryParse(wrappedMessage)
             : wrappedMessage
           paymentData = (parsedBody as any).payment
         }
@@ -1365,7 +1357,7 @@ export class MessageBoxClient {
           }, originator)
 
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
-          message.body = tryParse(decryptedText)
+          message.body = this.tryParse(decryptedText)
         } else {
           // For non-encrypted messages, use the processed content
           message.body = messageContent ?? parsedBody
@@ -1388,6 +1380,37 @@ export class MessageBoxClient {
     return messages
   }
 
+  /**
+   * @method listMessagesLite
+   * @async
+   * @param {ListMessagesParams} params - Contains the `messageBox` to read from and the `host` to query.
+   * @returns {Promise<PeerMessage[]>} - Returns an array of decrypted `PeerMessage` objects with minimal processing.
+   *
+   * @description
+   * A lightweight variant of {@link listMessages} that fetches and decrypts messages
+   * from a specific host without performing:
+   * - Overlay host resolution
+   * - Payment acceptance or internalization
+   * - Cross-host deduplication
+   *
+   * This method:
+   * - Sends a direct POST request to the specified host's `/listMessages` endpoint.
+   * - Parses message bodies as JSON when possible.
+   * - Decrypts messages if they contain an `encryptedMessage` field, using AES-256-GCM via BRC-2-compliant ECDH key derivation.
+   * - Returns messages in the order provided by the host.
+   *
+   * This is intended for cases where you already know the host and need faster,
+   * simpler retrieval without the additional processing overhead of `listMessages`.
+   *
+   * @throws {Error} If the host returns an error status or decryption fails.
+   *
+   * @example
+   * const messages = await client.listMessagesLite({
+   *   messageBox: 'notifications',
+   *   host: 'https://messagebox.babbage.systems'
+   * })
+   * console.log(messages)
+   */
   async listMessagesLite ({ messageBox, host }: ListMessagesParams): Promise<PeerMessage[]> {
     const res = await this.authFetch.fetch(`${host as string}/listMessages`, {
       method: 'POST',
@@ -1450,6 +1473,120 @@ export class MessageBoxClient {
       }
     }
     return messages
+  }
+
+  /**
+   * @method tryParse
+   * @private
+   * @param {string} raw - A raw string value that may contain JSON.
+   * @returns {any} - The parsed JavaScript object if valid JSON, or the original string if parsing fails.
+   *
+   * @description
+   * Attempts to parse a string as JSON. If the string is valid JSON, returns the parsed object;
+   * otherwise returns the original string unchanged.
+   *
+   * This method is used throughout the client to safely handle message bodies that may or may not be
+   * JSON-encoded without throwing parsing errors.
+   *
+   * @example
+   * tryParse('{"hello":"world"}') // → { hello: "world" }
+   * tryParse('plain text')        // → "plain text"
+   */
+  tryParse (raw: string): any {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return raw
+    }
+  }
+
+  /**
+   * @method acknowledgeNotification
+   * @async
+   * @param {PeerMessage} message - The peer message object to acknowledge.
+   * @returns {Promise<boolean>} - Resolves to `true` if the message included a recipient payment and it was successfully internalized, otherwise `false`.
+   *
+   * @description
+   * Acknowledges receipt of a specific notification message and, if applicable, processes any recipient
+   * payment contained within it.
+   *
+   * This method:
+   * 1. Calls `acknowledgeMessage()` to remove the message from the server's queue.
+   * 2. Checks the message body for embedded payment data.
+   * 3. If a recipient payment exists, attempts to internalize it into the wallet.
+   *
+   * This is a convenience wrapper for acknowledgment and payment handling specifically for messages
+   * representing notifications.
+   *
+   * @example
+   * const success = await client.acknowledgeNotification(message)
+   * console.log(success ? 'Payment received' : 'No payment or failed')
+   */
+  async acknowledgeNotification(message: PeerMessage): Promise<boolean> {
+    await this.acknowledgeMessage({ messageIds: [message.messageId] })
+
+    const parsedBody: unknown =
+      typeof message.body === 'string' ? this.tryParse(message.body) : message.body
+
+    let paymentData: Payment | undefined
+
+    if (
+      parsedBody != null &&
+      typeof parsedBody === 'object' &&
+      'message' in parsedBody
+    ) {
+      paymentData = (parsedBody as any).payment
+    }
+
+    // Process payment if present - server now only stores recipient payments
+    if (paymentData?.tx != null && paymentData.outputs != null) {
+      try {
+        Logger.log(
+          `[MB CLIENT] Processing recipient payment in message from ${String(message.sender)}…`
+        )
+
+        // All outputs in the stored payment data are for the recipient
+        // (delivery fees are already processed by the server)
+        const recipientOutputs = paymentData.outputs.filter(
+          output => output.protocol === 'wallet payment'
+        )
+
+        if (recipientOutputs.length < 1) {
+          Logger.log(
+            '[MB CLIENT] No wallet payment outputs found in payment data'
+          )
+          return false
+        }
+
+        Logger.log(
+          `[MB CLIENT] Internalizing ${recipientOutputs.length} recipient payment output(s)…`
+        )
+
+        const internalizeResult = await this.walletClient.internalizeAction({
+          tx: paymentData.tx,
+          outputs: recipientOutputs,
+          description: paymentData.description ?? 'MessageBox recipient payment'
+        })
+
+        if (internalizeResult.accepted) {
+          Logger.log(
+            '[MB CLIENT] Successfully internalized recipient payment'
+          )
+          return true
+        } else {
+          Logger.warn(
+            '[MB CLIENT] Recipient payment internalization was not accepted'
+          )
+          return false
+        }
+      } catch (paymentError) {
+        Logger.error(
+          '[MB CLIENT ERROR] Failed to internalize recipient payment:',
+          paymentError
+        )
+        return false
+      }
+    }
   }
 
   /**
@@ -1995,14 +2132,31 @@ export class MessageBoxClient {
     return 'payment_required'
   }
 
-  /**
-   * Creates payment transaction for message delivery fees
-   * TODO: Consider consolidating payment generating logic with a util PeerPayClient can use as well.
+   /**
+   * @method createMessagePayment
    * @private
-   * @param {string} recipient - Recipient identity key
-   * @param {MessageBoxQuote} quote - Fee quote with delivery and recipient fees
-   * @param {string} description - Description for the payment transaction
-   * @returns {Promise<Payment>} Payment transaction data
+   * @param {string} recipient - Recipient's identity key.
+   * @param {MessageBoxQuote} quote - Quote object containing recipient and delivery fees.
+   * @param {string} [description='MessageBox delivery payment'] - Description for the payment action.
+   * @param {string} [originator] - Optional originator to use for wallet operations.
+   * @returns {Promise<Payment>} - Payment data including the transaction and remittance outputs.
+   *
+   * @description
+   * Constructs and signs a payment transaction covering both delivery and recipient fees for
+   * message delivery, based on a previously obtained quote.
+   *
+   * The transaction includes:
+   * - An optional delivery fee output for the MessageBox server.
+   * - An optional recipient fee output for the message recipient.
+   *
+   * Payment remittance metadata (derivation prefix/suffix, sender identity) is embedded to allow
+   * the payee to derive their private key and spend the output.
+   *
+   * @throws {Error} If no payment is required, key derivation fails, or the action creation fails.
+   *
+   * @example
+   * const payment = await client.createMessagePayment(recipientKey, quote)
+   * await client.sendMessage({ recipient, messageBox, body, payment })
    */
   private async createMessagePayment(
     recipient: string,
