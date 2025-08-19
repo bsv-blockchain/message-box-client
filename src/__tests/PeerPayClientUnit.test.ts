@@ -119,7 +119,7 @@ describe('PeerPayClient Unit Tests', () => {
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
         body: expect.any(String)
-      })
+      }, undefined)
     }, 10000)
   })
 
@@ -147,7 +147,7 @@ describe('PeerPayClient Unit Tests', () => {
       expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
-        body: "{\"customInstructions\":{\"derivationPrefix\":\"prefix\",\"derivationSuffix\":\"suffix\"},\"transaction\":[1,2,3,4,5],\"amount\":2}"
+        body: '{"customInstructions":{"derivationPrefix":"prefix","derivationSuffix":"suffix"},"transaction":[1,2,3,4,5],"amount":2}'
       })
     })
   })
