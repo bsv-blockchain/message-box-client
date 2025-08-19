@@ -116,7 +116,7 @@ export class MessageBoxClient {
    * })
    * await client.init()
    */
-  constructor(options: MessageBoxClientOptions = {}) {
+  constructor (options: MessageBoxClientOptions = {}) {
     const {
       host,
       walletClient,
@@ -168,7 +168,7 @@ export class MessageBoxClient {
    * await client.init()
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
-  async init(targetHost: string = this.host, originator?: string): Promise<void> {
+  async init (targetHost: string = this.host, originator?: string): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
@@ -189,9 +189,14 @@ export class MessageBoxClient {
     // 3. If none our found, anoint this host
     if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
-      const { txid } = await this.anointHost(normalizedHost, originator)
-      if (txid == null || txid.trim() === '') {
-        throw new Error('Failed to anoint host: No transaction ID returned')
+      try {
+        const { txid } = await this.anointHost(normalizedHost, originator)
+        if (txid == null || txid.trim() === '') {
+          throw new Error('Failed to anoint host: No transaction ID returned')
+        }
+      } catch (error) {
+        Logger.log('[MB CLIENT] Failed to anoint host, continuing with default functionality:', error)
+        // Continue with default host - client can still function for basic operations
       }
     }
     this.initialized = true
@@ -208,7 +213,7 @@ export class MessageBoxClient {
    *
    * Used automatically by all public methods that require initialization.
    */
-  private async assertInitialized(): Promise<void> {
+  private async assertInitialized (): Promise<void> {
     if (!this.initialized || this.host == null || this.host.trim() === '') {
       await this.init()
     }
@@ -221,7 +226,7 @@ export class MessageBoxClient {
    * Returns a live list of WebSocket rooms the client is subscribed to.
    * Useful for inspecting state or ensuring no duplicates are joined.
    */
-  public getJoinedRooms(): Set<string> {
+  public getJoinedRooms (): Set<string> {
     return this.joinedRooms
   }
 
@@ -233,7 +238,7 @@ export class MessageBoxClient {
  * Returns the client's identity key, used for signing, encryption, and addressing.
  * If not already loaded, it will fetch and cache it.
  */
-  public async getIdentityKey(originator?: string): Promise<string> {
+  public async getIdentityKey (originator?: string): Promise<string> {
     if (this.myIdentityKey != null && this.myIdentityKey.trim() !== '') {
       return this.myIdentityKey
     }
@@ -261,7 +266,7 @@ export class MessageBoxClient {
    * Note: Do not interact with the socket directly unless necessary.
    * Use the provided `sendLiveMessage`, `listenForLiveMessages`, and related methods.
    */
-  public get testSocket(): ReturnType<typeof AuthSocketClient> | undefined {
+  public get testSocket (): ReturnType<typeof AuthSocketClient> | undefined {
     return this.socket
   }
 
@@ -289,7 +294,7 @@ export class MessageBoxClient {
    * await mb.initializeConnection()
    * // WebSocket is now ready for use
    */
-  async initializeConnection(originator?: string): Promise<void> {
+  async initializeConnection (originator?: string): Promise<void> {
     await this.assertInitialized()
     Logger.log('[MB CLIENT] initializeConnection() STARTED')
 
@@ -383,7 +388,7 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  async resolveHostForRecipient(identityKey: string, originator?: string): Promise<string> {
+  async resolveHostForRecipient (identityKey: string, originator?: string): Promise<string> {
     const advertisementTokens = await this.queryAdvertisements(identityKey, undefined, originator)
     if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
@@ -401,7 +406,7 @@ export class MessageBoxClient {
    * @param host?        if passed, only look for adverts anointed at that host
    * @returns            0-length array if nothing valid was found
    */
-  async queryAdvertisements(
+  async queryAdvertisements (
     identityKey?: string,
     host?: string,
     originator?: string
@@ -466,7 +471,7 @@ export class MessageBoxClient {
    * await client.joinRoom('payment_inbox')
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
-  async joinRoom(messageBox: string): Promise<void> {
+  async joinRoom (messageBox: string): Promise<void> {
     await this.assertInitialized()
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
@@ -525,7 +530,7 @@ export class MessageBoxClient {
    *   onMessage: (msg) => console.log('Received live message:', msg)
    * })
    */
-  async listenForLiveMessages({
+  async listenForLiveMessages ({
     onMessage,
     messageBox,
     originator
@@ -623,7 +628,7 @@ export class MessageBoxClient {
    *   body: { amount: 1000 }
    * })
    */
-  async sendLiveMessage({
+  async sendLiveMessage ({
     recipient,
     messageBox,
     body,
@@ -781,7 +786,7 @@ export class MessageBoxClient {
    * @example
    * await client.leaveRoom('payment_inbox')
    */
-  async leaveRoom(messageBox: string): Promise<void> {
+  async leaveRoom (messageBox: string): Promise<void> {
     await this.assertInitialized()
     if (this.socket == null) {
       Logger.warn('[MB CLIENT] Attempted to leave a room but WebSocket is not connected.')
@@ -813,7 +818,7 @@ export class MessageBoxClient {
    * @example
    * await client.disconnectWebSocket()
    */
-  async disconnectWebSocket(): Promise<void> {
+  async disconnectWebSocket (): Promise<void> {
     await this.assertInitialized()
     if (this.socket != null) {
       Logger.log('[MB CLIENT] Closing WebSocket connection...')
@@ -851,7 +856,7 @@ export class MessageBoxClient {
    *   body: { type: 'ping' }
    * })
    */
-  async sendMessage(
+  async sendMessage (
     message: SendMessageParams,
     overrideHost?: string,
     originator?: string
@@ -1015,7 +1020,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost(host: string, originator?: string): Promise<{ txid: string }> {
+  async anointHost (host: string, originator?: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
@@ -1097,7 +1102,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.revokeHost('https://my-messagebox.io')
    */
-  async revokeHostAdvertisement(advertisementToken: AdvertisementToken, originator?: string): Promise<{ txid: string }> {
+  async revokeHostAdvertisement (advertisementToken: AdvertisementToken, originator?: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting revokeHost...')
     const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
     try {
@@ -1213,7 +1218,11 @@ export class MessageBoxClient {
 
     let hosts: string[] = host != null ? [host] : []
     if (hosts.length === 0) {
-      const advertisedHosts = await this.queryAdvertisements(await this.getIdentityKey(originator), originator)
+      const advertisedHosts = await this.queryAdvertisements(
+        await this.getIdentityKey(originator),
+        undefined,
+        originator
+      )
       hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
 
@@ -1340,7 +1349,7 @@ export class MessageBoxClient {
         if (
           messageContent != null &&
           typeof messageContent === 'object' &&
-          typeof (messageContent as any).encryptedMessage === 'string'
+          typeof (messageContent).encryptedMessage === 'string'
         ) {
           Logger.log(
             `[MB CLIENT] Decrypting message from ${String(message.sender)}…`
@@ -1522,7 +1531,7 @@ export class MessageBoxClient {
    * const success = await client.acknowledgeNotification(message)
    * console.log(success ? 'Payment received' : 'No payment or failed')
    */
-  async acknowledgeNotification(message: PeerMessage): Promise<boolean> {
+  async acknowledgeNotification (message: PeerMessage): Promise<boolean> {
     await this.acknowledgeMessage({ messageIds: [message.messageId] })
 
     const parsedBody: unknown =
@@ -1611,7 +1620,7 @@ export class MessageBoxClient {
    * @example
    * await client.acknowledgeMessage({ messageIds: ['msg123', 'msg456'] })
    */
-  async acknowledgeMessage({ messageIds, host, originator }: AcknowledgeMessageParams): Promise<string> {
+  async acknowledgeMessage ({ messageIds, host, originator }: AcknowledgeMessageParams): Promise<string> {
     await this.assertInitialized()
     if (!Array.isArray(messageIds) || messageIds.length === 0) {
       throw new Error('Message IDs array cannot be empty')
@@ -1694,7 +1703,7 @@ export class MessageBoxClient {
    *   recipientFee: -1
    * })
    */
-  async setMessageBoxPermission(
+  async setMessageBoxPermission (
     params: SetMessageBoxPermissionParams,
     overrideHost?: string
   ): Promise<void> {
@@ -1742,7 +1751,7 @@ export class MessageBoxClient {
    *   sender: '03abc123...'
    * })
    */
-  async getMessageBoxPermission(
+  async getMessageBoxPermission (
     params: GetMessageBoxPermissionParams,
     overrideHost?: string
   ): Promise<MessageBoxPermission | null> {
@@ -1789,7 +1798,7 @@ export class MessageBoxClient {
    *   messageBox: 'notifications'
    * })
    */
-  async getMessageBoxQuote(params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
+  async getMessageBoxQuote (params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
     await this.assertInitialized()
 
     const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
@@ -1847,7 +1856,7 @@ export class MessageBoxClient {
    *   offset: 0
    * })
    */
-  async listMessageBoxPermissions(params?: ListPermissionsParams, overrideHost?: string): Promise<MessageBoxPermission[]> {
+  async listMessageBoxPermissions (params?: ListPermissionsParams, overrideHost?: string): Promise<MessageBoxPermission[]> {
     await this.assertInitialized()
 
     const finalHost = overrideHost ?? this.host
@@ -1908,7 +1917,7 @@ export class MessageBoxClient {
    * await client.allowNotificationsFromPeer('03abc123...') // Always allow
    * await client.allowNotificationsFromPeer('03def456...', 5) // Allow for 5 sats
    */
-  async allowNotificationsFromPeer(identityKey: PubKeyHex, recipientFee: number = 0, overrideHost?: string): Promise<void> {
+  async allowNotificationsFromPeer (identityKey: PubKeyHex, recipientFee: number = 0, overrideHost?: string): Promise<void> {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
@@ -1928,7 +1937,7 @@ export class MessageBoxClient {
    * @example
    * await client.denyNotificationsFromPeer('03spam123...')
    */
-  async denyNotificationsFromPeer(identityKey: PubKeyHex, overrideHost?: string): Promise<void> {
+  async denyNotificationsFromPeer (identityKey: PubKeyHex, overrideHost?: string): Promise<void> {
     await this.setMessageBoxPermission({
       messageBox: 'notifications',
       sender: identityKey,
@@ -1949,7 +1958,7 @@ export class MessageBoxClient {
    * const status = await client.checkPeerNotificationStatus('03abc123...')
    * console.log(status.allowed) // true/false
    */
-  async checkPeerNotificationStatus(identityKey: PubKeyHex, overrideHost?: string): Promise<MessageBoxPermission | null> {
+  async checkPeerNotificationStatus (identityKey: PubKeyHex, overrideHost?: string): Promise<MessageBoxPermission | null> {
     const myIdentityKey = await this.getIdentityKey()
     return await this.getMessageBoxPermission({
       recipient: myIdentityKey,
@@ -1969,7 +1978,7 @@ export class MessageBoxClient {
    * @example
    * const notifications = await client.listPeerNotifications()
    */
-  async listPeerNotifications(overrideHost?: string): Promise<MessageBoxPermission[]> {
+  async listPeerNotifications (overrideHost?: string): Promise<MessageBoxPermission[]> {
     return await this.listMessageBoxPermissions({ messageBox: 'notifications' }, overrideHost)
   }
 
@@ -1992,7 +2001,7 @@ export class MessageBoxClient {
    * // Send with maximum payment limit for safety
    * await client.sendNotification('03def456...', { title: 'Alert', body: 'Important update' }, 50)
    */
-  async sendNotification(
+  async sendNotification (
     recipient: PubKeyHex,
     body: string | object,
     overrideHost?: string
@@ -2028,7 +2037,7 @@ export class MessageBoxClient {
    *   deviceId: 'iPhone15Pro'
    * })
    */
-  async registerDevice(
+  async registerDevice (
     params: DeviceRegistrationParams,
     overrideHost?: string
   ): Promise<DeviceRegistrationResponse> {
@@ -2095,7 +2104,7 @@ export class MessageBoxClient {
    *   console.log(`Device: ${device.platform} - ${device.fcmToken}`)
    * })
    */
-  async listRegisteredDevices(
+  async listRegisteredDevices (
     overrideHost?: string
   ): Promise<RegisteredDevice[]> {
     await this.assertInitialized()
@@ -2127,39 +2136,39 @@ export class MessageBoxClient {
   // PRIVATE HELPER METHODS
   // ===========================
 
-  private static getStatusFromFee(fee: number): 'always_allow' | 'blocked' | 'payment_required' {
+  private static getStatusFromFee (fee: number): 'always_allow' | 'blocked' | 'payment_required' {
     if (fee === -1) return 'blocked'
     if (fee === 0) return 'always_allow'
     return 'payment_required'
   }
 
-   /**
-   * @method createMessagePayment
-   * @private
-   * @param {string} recipient - Recipient's identity key.
-   * @param {MessageBoxQuote} quote - Quote object containing recipient and delivery fees.
-   * @param {string} [description='MessageBox delivery payment'] - Description for the payment action.
-   * @param {string} [originator] - Optional originator to use for wallet operations.
-   * @returns {Promise<Payment>} - Payment data including the transaction and remittance outputs.
-   *
-   * @description
-   * Constructs and signs a payment transaction covering both delivery and recipient fees for
-   * message delivery, based on a previously obtained quote.
-   *
-   * The transaction includes:
-   * - An optional delivery fee output for the MessageBox server.
-   * - An optional recipient fee output for the message recipient.
-   *
-   * Payment remittance metadata (derivation prefix/suffix, sender identity) is embedded to allow
-   * the payee to derive their private key and spend the output.
-   *
-   * @throws {Error} If no payment is required, key derivation fails, or the action creation fails.
-   *
-   * @example
-   * const payment = await client.createMessagePayment(recipientKey, quote)
-   * await client.sendMessage({ recipient, messageBox, body, payment })
-   */
-  private async createMessagePayment(
+  /**
+  * @method createMessagePayment
+  * @private
+  * @param {string} recipient - Recipient's identity key.
+  * @param {MessageBoxQuote} quote - Quote object containing recipient and delivery fees.
+  * @param {string} [description='MessageBox delivery payment'] - Description for the payment action.
+  * @param {string} [originator] - Optional originator to use for wallet operations.
+  * @returns {Promise<Payment>} - Payment data including the transaction and remittance outputs.
+  *
+  * @description
+  * Constructs and signs a payment transaction covering both delivery and recipient fees for
+  * message delivery, based on a previously obtained quote.
+  *
+  * The transaction includes:
+  * - An optional delivery fee output for the MessageBox server.
+  * - An optional recipient fee output for the message recipient.
+  *
+  * Payment remittance metadata (derivation prefix/suffix, sender identity) is embedded to allow
+  * the payee to derive their private key and spend the output.
+  *
+  * @throws {Error} If no payment is required, key derivation fails, or the action creation fails.
+  *
+  * @example
+  * const payment = await client.createMessagePayment(recipientKey, quote)
+  * await client.sendMessage({ recipient, messageBox, body, payment })
+  */
+  private async createMessagePayment (
     recipient: string,
     quote: MessageBoxQuote,
     description: string = 'MessageBox delivery payment',
