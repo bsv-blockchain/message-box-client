@@ -148,7 +148,7 @@ describe('PeerPayClient Unit Tests', () => {
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
         body: '{"customInstructions":{"derivationPrefix":"prefix","derivationSuffix":"suffix"},"transaction":[1,2,3,4,5],"amount":2}'
-      })
+      }, undefined)
     })
   })
 

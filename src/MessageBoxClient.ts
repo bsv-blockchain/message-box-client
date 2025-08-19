@@ -642,8 +642,7 @@ export class MessageBoxClient {
     skipEncryption,
     checkPermissions,
     originator
-  }: SendMessageParams): Promise<SendMessageResponse> {
-    await this.assertInitialized()
+  }: SendMessageParams, overrideHost?: string): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
     }
@@ -655,12 +654,12 @@ export class MessageBoxClient {
     }
 
     // Ensure room is joined before sending
-    await this.joinRoom(messageBox)
+    await this.joinRoom(messageBox, originator, overrideHost)
 
     // Fallback to HTTP if WebSocket is not connected
     if (this.socket == null || !this.socket.connected) {
       Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
-      const targetHost = await this.resolveHostForRecipient(recipient)
+      const targetHost = overrideHost ?? await this.resolveHostForRecipient(recipient)
       return await this.sendMessage({ recipient, messageBox, body }, targetHost)
     }
 

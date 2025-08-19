@@ -198,16 +198,17 @@ export class PeerPayClient extends MessageBoxClient {
    * Sends Bitcoin to a PeerPay recipient over WebSockets.
    *
    * This function generates a payment token and transmits it over WebSockets
-   * using `sendLiveMessage`. The recipient’s identity key is explicitly included
+   * using `sendLiveMessage`. The recipient's identity key is explicitly included
    * to ensure proper message routing.
    *
    * @param {PaymentParams} payment - The payment details.
    * @param {string} payment.recipient - The recipient's identity key.
    * @param {number} payment.amount - The amount in satoshis to send.
+   * @param {string} [overrideHost] - Optional host override for WebSocket connection.
    * @returns {Promise<void>} Resolves when the payment has been sent.
    * @throws {Error} If payment token generation fails.
    */
-  async sendLivePayment (payment: PaymentParams): Promise<void> {
+  async sendLivePayment (payment: PaymentParams, overrideHost?: string): Promise<void> {
     const paymentToken = await this.createPaymentToken(payment)
 
     try {
@@ -216,7 +217,7 @@ export class PeerPayClient extends MessageBoxClient {
         recipient: payment.recipient,
         messageBox: STANDARD_PAYMENT_MESSAGEBOX,
         body: JSON.stringify(paymentToken)
-      })
+      }, overrideHost)
     } catch (err) {
       Logger.warn('[PP CLIENT] sendLiveMessage failed, falling back to HTTP:', err)
 
@@ -225,7 +226,7 @@ export class PeerPayClient extends MessageBoxClient {
         recipient: payment.recipient,
         messageBox: STANDARD_PAYMENT_MESSAGEBOX,
         body: JSON.stringify(paymentToken)
-      })
+      }, overrideHost)
     }
   }
 
@@ -238,6 +239,7 @@ export class PeerPayClient extends MessageBoxClient {
    *
    * @param {Object} obj - The configuration object.
    * @param {Function} obj.onPayment - Callback function triggered when a payment is received.
+   * @param {string} [obj.overrideHost] - Optional host override for WebSocket connection.
    * @returns {Promise<void>} Resolves when the listener is successfully set up.
    */
   async listenForLivePayments ({
