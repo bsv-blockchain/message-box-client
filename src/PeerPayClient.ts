@@ -175,10 +175,11 @@ export class PeerPayClient extends MessageBoxClient {
    * @param {PaymentParams} payment - The payment details.
    * @param {string} payment.recipient - The recipient's identity key.
    * @param {number} payment.amount - The amount in satoshis to send.
+   * @param {string} [hostOverride] - Optional host override for the message box server.
    * @returns {Promise<any>} Resolves with the payment result.
    * @throws {Error} If the recipient is missing or the amount is invalid.
    */
-  async sendPayment(payment: PaymentParams): Promise<any> {
+  async sendPayment(payment: PaymentParams, hostOverride?: string): Promise<any> {
     if (payment.recipient == null || payment.recipient.trim() === '' || payment.amount <= 0) {
       throw new Error('Invalid payment details: recipient and valid amount are required')
     }
@@ -190,7 +191,7 @@ export class PeerPayClient extends MessageBoxClient {
       recipient: payment.recipient,
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
       body: JSON.stringify(paymentToken)
-    })
+    }, hostOverride)
   }
 
   /**
@@ -240,10 +241,15 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<void>} Resolves when the listener is successfully set up.
    */
   async listenForLivePayments({
-    onPayment
-  }: { onPayment: (payment: IncomingPayment) => void }): Promise<void> {
+    onPayment,
+    overrideHost
+  }: { 
+    onPayment: (payment: IncomingPayment) => void
+    overrideHost?: string
+  }): Promise<void> {
     await this.listenForLiveMessages({
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
+      overrideHost,
 
       // Convert PeerMessage → IncomingPayment before calling onPayment
       onMessage: (message: PeerMessage) => {
@@ -368,10 +374,11 @@ export class PeerPayClient extends MessageBoxClient {
    * This function queries the message box for new messages and transforms
    * them into `IncomingPayment` objects by extracting relevant fields.
    *
+   * @param {string} [overrideHost] - Optional host override to list payments from
    * @returns {Promise<IncomingPayment[]>} Resolves with an array of pending payments.
    */
-  async listIncomingPayments(): Promise<IncomingPayment[]> {
-    const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX })
+  async listIncomingPayments(overrideHost?: string): Promise<IncomingPayment[]> {
+    const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX, host: overrideHost })
 
     return messages.map((msg: any) => {
       const parsedToken = safeParse<PaymentToken>(msg.body)
