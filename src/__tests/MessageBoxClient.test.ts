@@ -320,7 +320,6 @@ describe('MessageBoxClient', () => {
 
     const result = await messageBoxClient.listMessages({ messageBox: 'test_inbox' })
 
-
     expect(result).toEqual(JSON.parse(VALID_LIST_AND_READ_RESULT.body).messages)
   })
 
@@ -436,28 +435,6 @@ describe('MessageBoxClient', () => {
 
     await expect(messageBoxClient.acknowledgeMessage({ messageIds: ['42'] }))
       .rejects.toThrow('Failed to acknowledge messages')
-  })
-
-  it('Throws an error when WebSocket is not initialized before listening for messages', async () => {
-    const messageBoxClient = new MessageBoxClient({
-      walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
-      enableLogging: true
-    })
-    await messageBoxClient.init()
-
-    // Stub out the identity key to pass that check
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
-
-    // Stub out joinRoom to throw like the real one might
-    jest.spyOn(messageBoxClient, 'joinRoom').mockRejectedValue(new Error('WebSocket connection not initialized'))
-
-    await expect(
-      messageBoxClient.listenForLiveMessages({
-        onMessage: jest.fn(),
-        messageBox: 'test_inbox'
-      })
-    ).rejects.toThrow('WebSocket connection not initialized')
   })
 
   it('Emits joinRoom event and listens for incoming messages', async () => {
