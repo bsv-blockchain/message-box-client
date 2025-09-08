@@ -12,7 +12,7 @@
 
 import { MessageBoxClient } from './MessageBoxClient.js'
 import { PeerMessage } from './types.js'
-import { WalletClient, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
+import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
 import * as Logger from './Utils/logger.js'
 
 function safeParse<T> (input: any): T {
@@ -34,7 +34,7 @@ const STANDARD_PAYMENT_OUTPUT_INDEX = 0
  */
 export interface PeerPayClientConfig {
   messageBoxHost?: string
-  walletClient: WalletClient
+  walletClient: WalletInterface
   enableLogging?: boolean // Added optional logging flag
 }
 
@@ -71,7 +71,7 @@ export interface IncomingPayment {
  * PeerPayClient enables peer-to-peer Bitcoin payments using MessageBox.
  */
 export class PeerPayClient extends MessageBoxClient {
-  private readonly peerPayWalletClient: WalletClient
+  private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
 
   constructor (config: PeerPayClientConfig) {
