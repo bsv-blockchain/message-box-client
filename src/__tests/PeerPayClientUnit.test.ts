@@ -76,8 +76,8 @@ describe('PeerPayClient Unit Tests', () => {
       const token = await peerPayClient.createPaymentToken(payment)
 
       expect(token).toHaveProperty('amount', 5)
-      expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object))
-      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object))
+      expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object), undefined)
+      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object), undefined)
     })
 
     it('should throw an error if recipient public key cannot be derived', async () => {
@@ -143,7 +143,7 @@ describe('PeerPayClient Unit Tests', () => {
       const payment = { recipient: 'recipientKey', amount: 2 }
       await peerPayClient.sendLivePayment(payment)
 
-      expect(peerPayClient.createPaymentToken).toHaveBeenCalledWith(payment)
+      expect(peerPayClient.createPaymentToken).toHaveBeenCalledWith(payment, undefined)
       expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
         recipient: 'recipientKey',
         messageBox: 'payment_inbox',
@@ -194,11 +194,11 @@ describe('PeerPayClient Unit Tests', () => {
 
       await peerPayClient.rejectPayment(payment)
 
-      expect(peerPayClient.acceptPayment).toHaveBeenCalledWith(payment)
+      expect(peerPayClient.acceptPayment).toHaveBeenCalledWith(payment, undefined)
       expect(peerPayClient.sendPayment).toHaveBeenCalledWith({
         recipient: 'senderKey',
         amount: 1000 // Deduct satoshi fee
-      })
+      }, undefined)
       expect(peerPayClient.acknowledgeMessage).toHaveBeenCalledWith({
         messageIds: ['123']
       })
