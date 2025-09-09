@@ -13,6 +13,7 @@
 import { MessageBoxClient } from './MessageBoxClient.js'
 import { PeerMessage } from './types.js'
 import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes } from '@bsv/sdk'
+
 import * as Logger from './Utils/logger.js'
 
 function safeParse<T> (input: any): T {
