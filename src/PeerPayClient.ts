@@ -75,12 +75,11 @@ export interface IncomingPayment {
 export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
-  private originator?: OriginatorDomainNameStringUnder250Bytes
   constructor (config: PeerPayClientConfig) {
     const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
 
     // 🔹 Pass enableLogging to MessageBoxClient
-    super({ host: messageBoxHost, walletClient, enableLogging })
+    super({ host: messageBoxHost, walletClient, enableLogging, originator })
 
     this.peerPayWalletClient = walletClient
     this.originator = originator

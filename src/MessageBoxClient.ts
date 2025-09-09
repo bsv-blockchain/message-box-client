@@ -37,7 +37,9 @@ import {
   WalletInterface,
   ProtoWallet,
   InternalizeOutput,
-  Random
+  Random,
+  OriginatorDomainNameStringUnder250Bytes
+  
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import * as Logger from './Utils/logger.js'
@@ -91,7 +93,7 @@ export class MessageBoxClient {
   private readonly lookupResolver: LookupResolver
   private readonly networkPreset: 'local' | 'mainnet' | 'testnet'
   private initialized = false
-
+  protected originator?: OriginatorDomainNameStringUnder250Bytes
   /**
    * @constructor
    * @param {Object} options - Initialization options for the MessageBoxClient.
@@ -131,7 +133,7 @@ export class MessageBoxClient {
         : DEFAULT_MAINNET_HOST
 
     this.host = host?.trim() ?? defaultHost
-
+    this.originator = originator
     this.walletClient = walletClient ?? new WalletClient('auto', originator)
     this.authFetch = new AuthFetch(this.walletClient)
     this.networkPreset = networkPreset
@@ -168,7 +170,7 @@ export class MessageBoxClient {
    * await client.init()
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
-  async init (targetHost: string = this.host, originator?: string): Promise<void> {
+  async init (targetHost: string = this.host): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
       throw new Error('Cannot anoint host: No valid host provided')
@@ -183,14 +185,14 @@ export class MessageBoxClient {
     if (this.initialized) return
 
     // 1. Get our identity key
-    const identityKey = await this.getIdentityKey(originator)
+    const identityKey = await this.getIdentityKey(this.originator)
     // 2. Check for any matching advertisements for the given host
-    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost, originator)
+    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost, this.originator)
     // 3. If none our found, anoint this host
     if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
       Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
       try {
-        const { txid } = await this.anointHost(normalizedHost, originator)
+        const { txid } = await this.anointHost(normalizedHost)
         if (txid == null || txid.trim() === '') {
           throw new Error('Failed to anoint host: No transaction ID returned')
         }
@@ -388,8 +390,8 @@ export class MessageBoxClient {
    * @example
    * const host = await resolveHostForRecipient('028d...') // → returns either overlay host or this.host
    */
-  async resolveHostForRecipient (identityKey: string, originator?: string): Promise<string> {
-    const advertisementTokens = await this.queryAdvertisements(identityKey, undefined, originator)
+  async resolveHostForRecipient (identityKey: string): Promise<string> {
+    const advertisementTokens = await this.queryAdvertisements(identityKey, undefined, this.originator)
     if (advertisementTokens.length === 0) {
       Logger.warn(`[MB CLIENT] No advertisements for ${identityKey}, using default host ${this.host}`)
       return this.host
@@ -471,13 +473,13 @@ export class MessageBoxClient {
    * await client.joinRoom('payment_inbox')
    * // Now listening for real-time messages in room '028d...-payment_inbox'
    */
-  async joinRoom (messageBox: string, originator?: string, overrideHost?: string): Promise<void> {
+  async joinRoom (messageBox: string, overrideHost?: string): Promise<void> {
     Logger.log(`[MB CLIENT] Attempting to join WebSocket room: ${messageBox}`)
 
     // Ensure WebSocket connection is established first
     if (this.socket == null) {
       Logger.log('[MB CLIENT] No WebSocket connection. Initializing...')
-      await this.initializeConnection(originator, overrideHost)
+      await this.initializeConnection(this.originator, overrideHost)
     }
 
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -549,7 +551,7 @@ export class MessageBoxClient {
     }
 
     // Join the room
-    await this.joinRoom(messageBox, originator, overrideHost)
+    await this.joinRoom(messageBox, originator)
 
     // Ensure identity key is available before creating roomId
     if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
@@ -654,7 +656,7 @@ export class MessageBoxClient {
     }
 
     // Ensure room is joined before sending
-    await this.joinRoom(messageBox, originator, overrideHost)
+    await this.joinRoom(messageBox, originator)
 
     // Fallback to HTTP if WebSocket is not connected
     if (this.socket == null || !this.socket.connected) {
@@ -1025,14 +1027,14 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.anointHost('https://my-messagebox.io')
    */
-  async anointHost (host: string, originator?: string): Promise<{ txid: string }> {
+  async anointHost (host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
     try {
       if (!host.startsWith('http')) {
         throw new Error('Invalid host URL')
       }
 
-      const identityKey = await this.getIdentityKey(originator)
+      const identityKey = await this.getIdentityKey(this.originator)
 
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
 
@@ -1041,7 +1043,7 @@ export class MessageBoxClient {
         Utils.toArray(host, 'utf8')
       ]
 
-      const pushdrop = new PushDrop(this.walletClient, originator)
+      const pushdrop = new PushDrop(this.walletClient, this.originator)
       Logger.log('Fields:', fields.map(a => Utils.toHex(a)))
       Logger.log('ProtocolID:', [1, 'messagebox advertisement'])
       Logger.log('KeyID:', '1')
@@ -1067,7 +1069,7 @@ export class MessageBoxClient {
           outputDescription: 'Overlay advertisement output'
         }],
         options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
-      }, originator)
+      }, this.originator)
 
       Logger.log('[MB CLIENT] Transaction created:', txid)
 
@@ -1107,7 +1109,7 @@ export class MessageBoxClient {
    * @example
    * const { txid } = await client.revokeHost('https://my-messagebox.io')
    */
-  async revokeHostAdvertisement (advertisementToken: AdvertisementToken, originator?: string): Promise<{ txid: string }> {
+  async revokeHostAdvertisement (advertisementToken: AdvertisementToken): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting revokeHost...')
     const outpoint = `${advertisementToken.txid}.${advertisementToken.outputIndex}`
     try {
@@ -1121,7 +1123,7 @@ export class MessageBoxClient {
             inputDescription: 'Revoking host advertisement token'
           }
         ]
-      }, originator)
+      }, this.originator)
 
       if (signableTransaction === undefined) {
         throw new Error('Failed to create signable transaction.')
@@ -1130,7 +1132,7 @@ export class MessageBoxClient {
       const partialTx = Transaction.fromBEEF(signableTransaction.tx)
 
       // Prepare the unlocker
-      const pushdrop = new PushDrop(this.walletClient, originator)
+      const pushdrop = new PushDrop(this.walletClient, this.originator)
       const unlocker = await pushdrop.unlock(
         [1, 'messagebox advertisement'],
         '1',
@@ -1155,7 +1157,7 @@ export class MessageBoxClient {
         options: {
           acceptDelayedBroadcast: false
         }
-      }, originator)
+      }, this.originator)
 
       if (signedTx === undefined) {
         throw new Error('Failed to finalize the transaction signature.')
@@ -1213,9 +1215,6 @@ export class MessageBoxClient {
   async listMessages ({ messageBox, host, originator, acceptPayments }: ListMessagesParams): Promise<PeerMessage[]> {
     if (typeof acceptPayments !== 'boolean') {
       acceptPayments = true
-    }
-    if (typeof host !== 'string') {
-      await this.assertInitialized()
     }
     if (messageBox.trim() === '') {
       throw new Error('MessageBox cannot be empty')
