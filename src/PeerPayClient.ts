@@ -338,7 +338,7 @@ export class PeerPayClient extends MessageBoxClient {
           Logger.warn('[PP CLIENT] Warning: authFetch is undefined! Ensure PeerPayClient is initialized correctly.')
         }
         Logger.log('[PP CLIENT] authFetch instance:', this.authFetch)
-        const response = await this.acknowledgeMessage({ messageIds: [payment.messageId] })
+        const response = await this.acknowledgeMessage({ messageIds: [payment.messageId], originator: this.originator })
         Logger.log(`[PP CLIENT] Acknowledgment response: ${response}`)
       } catch (error: any) {
         if (
@@ -388,7 +388,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<IncomingPayment[]>} Resolves with an array of pending payments.
    */
   async listIncomingPayments (overrideHost?: string): Promise<IncomingPayment[]> {
-    const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX, host: overrideHost })
+    const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX, host: overrideHost, originator: this.originator })
 
     return messages.map((msg: any) => {
       const parsedToken = safeParse<PaymentToken>(msg.body)
