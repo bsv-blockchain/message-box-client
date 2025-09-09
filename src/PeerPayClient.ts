@@ -12,7 +12,8 @@
 
 import { MessageBoxClient } from './MessageBoxClient.js'
 import { PeerMessage } from './types.js'
-import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String } from '@bsv/sdk'
+import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes } from '@bsv/sdk'
+
 import * as Logger from './Utils/logger.js'
 
 function safeParse<T> (input: any): T {
@@ -35,7 +36,8 @@ const STANDARD_PAYMENT_OUTPUT_INDEX = 0
 export interface PeerPayClientConfig {
   messageBoxHost?: string
   walletClient: WalletInterface
-  enableLogging?: boolean // Added optional logging flag
+  enableLogging?: boolean // Added optional logging flag,
+  originator?: OriginatorDomainNameStringUnder250Bytes
 }
 
 /**
@@ -73,19 +75,20 @@ export interface IncomingPayment {
 export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
-
+  private originator?: OriginatorDomainNameStringUnder250Bytes
   constructor (config: PeerPayClientConfig) {
-    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false } = config
+    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
 
     // 🔹 Pass enableLogging to MessageBoxClient
     super({ host: messageBoxHost, walletClient, enableLogging })
 
     this.peerPayWalletClient = walletClient
+    this.originator = originator
   }
 
   private get authFetchInstance (): AuthFetch {
     if (this._authFetchInstance === null || this._authFetchInstance === undefined) {
-      this._authFetchInstance = new AuthFetch(this.peerPayWalletClient)
+      this._authFetchInstance = new AuthFetch(this.peerPayWalletClient, undefined, undefined,  this.originator)
     }
     return this._authFetchInstance
   }
@@ -119,7 +122,7 @@ export class PeerPayClient extends MessageBoxClient {
       protocolID: [2, '3241645161d8'],
       keyID: `${derivationPrefix} ${derivationSuffix}`,
       counterparty: payment.recipient
-    })
+    }, this.originator)
 
     Logger.log(`[PP CLIENT] Derived Public Key: ${derivedKeyResult}`)
 
@@ -148,7 +151,7 @@ export class PeerPayClient extends MessageBoxClient {
       options: {
         randomizeOutputs: false
       }
-    })
+    }, this.originator)
 
     if (paymentAction.tx === undefined) {
       throw new Error('Transaction creation failed!')
@@ -186,7 +189,7 @@ export class PeerPayClient extends MessageBoxClient {
 
     const paymentToken = await this.createPaymentToken(payment)
 
-    // Ensure the recipient is included before sending
+    // Ensure the recipient is included before sendings
     await this.sendMessage({
       recipient: payment.recipient,
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
@@ -216,7 +219,8 @@ export class PeerPayClient extends MessageBoxClient {
       await this.sendLiveMessage({
         recipient: payment.recipient,
         messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-        body: JSON.stringify(paymentToken)
+        body: JSON.stringify(paymentToken),
+        originator: this.originator
       }, overrideHost)
     } catch (err) {
       Logger.warn('[PP CLIENT] sendLiveMessage failed, falling back to HTTP:', err)
@@ -225,7 +229,8 @@ export class PeerPayClient extends MessageBoxClient {
       await this.sendMessage({
         recipient: payment.recipient,
         messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-        body: JSON.stringify(paymentToken)
+        body: JSON.stringify(paymentToken), 
+        originator: this.originator
       }, overrideHost)
     }
   }
@@ -244,14 +249,17 @@ export class PeerPayClient extends MessageBoxClient {
    */
   async listenForLivePayments ({
     onPayment,
-    overrideHost
+    overrideHost,
+    originator
   }: {
     onPayment: (payment: IncomingPayment) => void
     overrideHost?: string
+    originator?: string
   }): Promise<void> {
     await this.listenForLiveMessages({
       messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      overrideHost,
+      overrideHost, 
+      originator,
 
       // Convert PeerMessage → IncomingPayment before calling onPayment
       onMessage: (message: PeerMessage) => {
@@ -294,12 +302,12 @@ export class PeerPayClient extends MessageBoxClient {
           protocol: 'wallet payment'
         }],
         description: 'PeerPay Payment'
-      })
+      }, this.originator)
 
       Logger.log(`[PP CLIENT] Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
       Logger.log(`[PP CLIENT] Acknowledging payment with messageId: ${payment.messageId}`)
 
-      await this.acknowledgeMessage({ messageIds: [payment.messageId] })
+      await this.acknowledgeMessage({ messageIds: [payment.messageId] , originator: this.originator})
 
       return { payment, paymentResult }
     } catch (error) {
@@ -363,7 +371,7 @@ export class PeerPayClient extends MessageBoxClient {
 
     try {
       Logger.log(`[PP CLIENT] Acknowledging message ${payment.messageId} after refunding...`)
-      await this.acknowledgeMessage({ messageIds: [payment.messageId] })
+      await this.acknowledgeMessage({ messageIds: [payment.messageId], originator: this.originator })
       Logger.log('[PP CLIENT] Acknowledgment after refund successful.')
     } catch (error: any) {
       Logger.error(`[PP CLIENT] Error acknowledging message after refund: ${(error as { message: string }).message}`)

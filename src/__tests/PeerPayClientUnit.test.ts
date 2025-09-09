@@ -76,8 +76,8 @@ describe('PeerPayClient Unit Tests', () => {
       const token = await peerPayClient.createPaymentToken(payment)
 
       expect(token).toHaveProperty('amount', 5)
-      expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object))
-      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object))
+      expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object), undefined)
+      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object), undefined)
     })
 
     it('should throw an error if recipient public key cannot be derived', async () => {
