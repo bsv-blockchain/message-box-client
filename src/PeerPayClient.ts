@@ -115,7 +115,6 @@ export class PeerPayClient extends MessageBoxClient {
 
     Logger.log(`[PP CLIENT] Derivation Prefix: ${derivationPrefix}`)
     Logger.log(`[PP CLIENT] Derivation Suffix: ${derivationSuffix}`)
-    console.log('createpayment token version check')
     // Get recipient's derived public key
     const { publicKey: derivedKeyResult } = await this.peerPayWalletClient.getPublicKey({
       protocolID: [2, '3241645161d8'],
