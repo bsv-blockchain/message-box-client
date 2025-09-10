@@ -382,8 +382,6 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<IncomingPayment[]>} Resolves with an array of pending payments.
    */
   async listIncomingPayments (overrideHost?: string): Promise<IncomingPayment[]> {
-    debugger
-    console.log('version check')
     const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX, host: overrideHost})
     return messages.map((msg: any) => {
       const parsedToken = safeParse<PaymentToken>(msg.body)
