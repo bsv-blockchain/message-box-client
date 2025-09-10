@@ -69,7 +69,6 @@ export interface SendMessageParams {
   skipEncryption?: boolean
   /** Optional: Enable permission and fee checking (default: false for backwards compatibility) */
   checkPermissions?: boolean
-  originator?: string
 }
 
 /**
@@ -89,12 +88,10 @@ export interface SendMessageResponse {
  *
  * @property {string[]} messageIds - An array of message IDs to acknowledge.
  * @property {string} [host] - Optional host URL where the messages originated.
- * @property {string} [originator] - Optional originator of the message box client.
  */
 export interface AcknowledgeMessageParams {
   messageIds: string[]
   host?: string
-  originator?: string
 }
 
 /**
@@ -102,12 +99,10 @@ export interface AcknowledgeMessageParams {
  *
  * @property messageBox - The identifier of the message box to retrieve messages from.
  * @property host - (Optional) The host URL to connect to for retrieving messages.
- * @property originator - (Optional) The originator of the message box client.
  */
 export interface ListMessagesParams {
   messageBox: string
   host?: string
-  originator?: string
   acceptPayments?: boolean
 }
 
