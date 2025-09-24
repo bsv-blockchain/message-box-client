@@ -28,8 +28,16 @@ jest.mock('@bsv/sdk', () => {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const actualSDK = jest.requireActual('@bsv/sdk') as any
 
+  class MockPushDrop {
+    lock = jest.fn(async () => ({
+      toHex: () => '76a914mockpushdrop88ac',
+      toASM: () => 'mock pushdrop asm'
+    }))
+  }
+
   return {
     ...actualSDK,
+    PushDrop: jest.fn().mockImplementation(() => new MockPushDrop()),
     WalletClient: jest.fn().mockImplementation(() => ({
       getPublicKey: jest.fn(),
       createAction: jest.fn(),
@@ -77,7 +85,13 @@ describe('PeerPayClient Unit Tests', () => {
 
       expect(token).toHaveProperty('amount', 5)
       expect(mockWalletClient.getPublicKey).toHaveBeenCalledWith(expect.any(Object), undefined)
-      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.any(Object), undefined)
+      expect(mockWalletClient.createAction).toHaveBeenCalledWith(expect.objectContaining({
+        outputs: expect.arrayContaining([
+          expect.objectContaining({ outputDescription: 'Payment for PeerPay transaction' }),
+          expect.objectContaining({ outputDescription: 'PeerPay data payload' })
+        ])
+      }), undefined)
+      expect(token.pushDropMetadata).toBeDefined()
     })
 
     it('should throw an error if recipient public key cannot be derived', async () => {
@@ -109,17 +123,29 @@ describe('PeerPayClient Unit Tests', () => {
         messageId: 'mockedMessageId'
       })
 
-      const payment = { recipient: 'recipientKey', amount: 3 }
+      const payment = {
+        recipient: 'recipientKey',
+        amount: 3,
+        note: 'Invoice #123',
+        metadata: { orderId: '123' },
+        onChainData: { reference: 'abc' }
+      }
 
       console.log('[TEST] Calling sendPayment...')
       await peerPayClient.sendPayment(payment)
       console.log('[TEST] sendPayment finished.')
 
-      expect(sendMessageSpy).toHaveBeenCalledWith({
+      expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
         recipient: 'recipientKey',
-        messageBox: 'payment_inbox',
-        body: expect.any(String)
-      }, undefined)
+        messageBox: 'payment_inbox'
+      }), undefined)
+
+      const [[sendParams]] = sendMessageSpy.mock.calls as unknown as Array<[ { body: string } ]>
+      const messagePayload = JSON.parse(sendParams.body)
+      expect(messagePayload).toHaveProperty('token')
+      expect(messagePayload).toHaveProperty('pushDropMetadata')
+      expect(messagePayload.note).toBe('Invoice #123')
+      expect(messagePayload.metadata).toMatchObject({ orderId: '123' })
     }, 10000)
   })
 
@@ -144,12 +170,16 @@ describe('PeerPayClient Unit Tests', () => {
       await peerPayClient.sendLivePayment(payment)
 
       expect(peerPayClient.createPaymentToken).toHaveBeenCalledWith(payment)
-      expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith({
+      expect(peerPayClient.sendLiveMessage).toHaveBeenCalledWith(expect.objectContaining({
         recipient: 'recipientKey',
-        messageBox: 'payment_inbox',
-        body: '{"customInstructions":{"derivationPrefix":"prefix","derivationSuffix":"suffix"},"transaction":[1,2,3,4,5],"amount":2}'
-      }, undefined)
-    })
+        messageBox: 'payment_inbox'
+      }), undefined)
+
+      const [[liveParams]] = (peerPayClient.sendLiveMessage as unknown as jest.Mock).mock.calls as unknown as Array<[ { body: string } ]>
+      const livePayload = JSON.parse(liveParams.body)
+      expect(livePayload).toHaveProperty('token')
+      expect(livePayload.token).toHaveProperty('amount', 2)
+  })
   })
 
   // Test: acceptPayment
@@ -215,9 +245,13 @@ describe('PeerPayClient Unit Tests', () => {
           created_at: '2025-03-05T12:00:00Z',
           updated_at: '2025-03-05T12:05:00Z',
           body: JSON.stringify({
-            customInstructions: { derivationPrefix: 'prefix1', derivationSuffix: 'suffix1' },
-            transaction: toArray('mockedTransaction1', 'utf8'),
-            amount: 3
+            token: {
+              customInstructions: { derivationPrefix: 'prefix1', derivationSuffix: 'suffix1' },
+              transaction: toArray('mockedTransaction1', 'utf8'),
+              amount: 3
+            },
+            note: 'Test note 1',
+            metadata: { foo: 'bar' }
           })
         },
         {
@@ -238,8 +272,28 @@ describe('PeerPayClient Unit Tests', () => {
       expect(payments).toHaveLength(2)
       expect(payments[0]).toHaveProperty('sender', 'sender1')
       expect(payments[0].token.amount).toBe(3)
+      expect(payments[0].note).toBe('Test note 1')
       expect(payments[1]).toHaveProperty('sender', 'sender2')
       expect(payments[1].token.amount).toBe(9)
+    })
+
+    it('respects a custom payment message box configured at construction', async () => {
+      const customClient = new PeerPayClient({
+        messageBoxHost: 'https://messagebox.babbage.systems',
+        walletClient: mockWalletClient,
+        paymentMessageBox: 'custom_box'
+      })
+
+      const sendMessageSpy = jest.spyOn(customClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'mockedMessageId'
+      })
+
+      await customClient.sendPayment({ recipient: 'recipientKey', amount: 3 })
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
+        messageBox: 'custom_box'
+      }), undefined)
     })
   })
 })

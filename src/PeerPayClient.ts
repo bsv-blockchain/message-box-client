@@ -12,7 +12,7 @@
 
 import { MessageBoxClient } from './MessageBoxClient.js'
 import { PeerMessage } from './types.js'
-import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes } from '@bsv/sdk'
+import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes, PushDrop, Transaction, SecurityLevel } from '@bsv/sdk'
 
 import * as Logger from './Utils/logger.js'
 
@@ -29,6 +29,12 @@ function safeParse<T> (input: any): T {
 
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
 const STANDARD_PAYMENT_OUTPUT_INDEX = 0
+const DEFAULT_DATA_OUTPUT_DESCRIPTION = 'PeerPay data payload'
+const DATA_OUTPUT_SATOSHIS = 1
+const PEERPAY_PUSH_DROP_PROTOCOL: [SecurityLevel, string] = [2, 'peerpay data payload']
+const PEERPAY_PUSH_DROP_KEY_ID = 'peerpay:data'
+const PEERPAY_RECEIPT_PROTOCOL: [SecurityLevel, string] = [2, 'peerpay receipt']
+const PEERPAY_RECEIPT_KEY_ID = 'peerpay:receipt'
 
 /**
  * Configuration options for initializing PeerPayClient.
@@ -38,6 +44,7 @@ export interface PeerPayClientConfig {
   walletClient: WalletInterface
   enableLogging?: boolean // Added optional logging flag,
   originator?: OriginatorDomainNameStringUnder250Bytes
+  paymentMessageBox?: string
 }
 
 /**
@@ -46,6 +53,10 @@ export interface PeerPayClientConfig {
 export interface PaymentParams {
   recipient: string
   amount: number
+  note?: string
+  metadata?: Record<string, any>
+  onChainData?: string | Record<string, any>
+  messageBox?: string
 }
 
 /**
@@ -58,6 +69,25 @@ export interface PaymentToken {
   }
   transaction: AtomicBEEF
   amount: number
+  pushDropMetadata?: PaymentPushDropMetadata
+}
+
+export interface PaymentPushDropMetadata {
+  outputIndex: number
+  lockingScript: string
+  protocolID: [number, string]
+  keyID: string
+  satoshis: number
+  counterparty: string
+  data?: string
+}
+
+export interface PaymentMessagePayload {
+  token: PaymentToken
+  note?: string
+  metadata?: Record<string, any>
+  onChainData?: string | Record<string, any>
+  pushDropMetadata?: PaymentPushDropMetadata
 }
 
 /**
@@ -67,6 +97,10 @@ export interface IncomingPayment {
   messageId: string
   sender: string
   token: PaymentToken
+  note?: string
+  metadata?: Record<string, any>
+  onChainData?: string | Record<string, any>
+  pushDropMetadata?: PaymentPushDropMetadata
 }
 
 /**
@@ -75,14 +109,16 @@ export interface IncomingPayment {
 export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
+  private readonly paymentMessageBox: string
   constructor (config: PeerPayClientConfig) {
-    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
+    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator, paymentMessageBox = STANDARD_PAYMENT_MESSAGEBOX } = config
 
     // 🔹 Pass enableLogging to MessageBoxClient
     super({ host: messageBoxHost, walletClient, enableLogging, originator })
 
     this.peerPayWalletClient = walletClient
     this.originator = originator
+    this.paymentMessageBox = paymentMessageBox
   }
 
   private get authFetchInstance (): AuthFetch {
@@ -134,18 +170,56 @@ export class PeerPayClient extends MessageBoxClient {
     Logger.log(`[PP CLIENT] Locking Script: ${lockingScript}`)
 
     // Create the payment action
+    const outputs = [{
+      satoshis: payment.amount,
+      lockingScript,
+      customInstructions: JSON.stringify({
+        derivationPrefix,
+        derivationSuffix,
+        payee: payment.recipient
+      }),
+      outputDescription: 'Payment for PeerPay transaction'
+    }]
+
+    const pushDropDataString = payment.onChainData === undefined
+      ? ''
+      : (typeof payment.onChainData === 'string' ? payment.onChainData : JSON.stringify(payment.onChainData))
+
+    const pushDrop = new PushDrop(this.peerPayWalletClient, this.originator)
+    const pushDropFields = [Array.from(Buffer.from(pushDropDataString, 'utf8'))]
+    const pushDropScript = await pushDrop.lock(
+      pushDropFields,
+      PEERPAY_PUSH_DROP_PROTOCOL,
+      PEERPAY_PUSH_DROP_KEY_ID,
+      payment.recipient,
+      false,
+      true
+    )
+
+    const pushDropMetadata: PaymentPushDropMetadata = {
+      outputIndex: outputs.length,
+      lockingScript: pushDropScript.toHex(),
+      protocolID: PEERPAY_PUSH_DROP_PROTOCOL,
+      keyID: PEERPAY_PUSH_DROP_KEY_ID,
+      satoshis: DATA_OUTPUT_SATOSHIS,
+      counterparty: payment.recipient,
+      data: pushDropDataString
+    }
+
+    outputs.push({
+      satoshis: DATA_OUTPUT_SATOSHIS,
+      lockingScript: pushDropMetadata.lockingScript,
+      outputDescription: DEFAULT_DATA_OUTPUT_DESCRIPTION,
+      customInstructions: JSON.stringify({
+        protocolID: PEERPAY_PUSH_DROP_PROTOCOL,
+        keyID: PEERPAY_PUSH_DROP_KEY_ID,
+        counterparty: payment.recipient
+      })
+    })
+
     const paymentAction = await this.peerPayWalletClient.createAction({
       description: 'PeerPay payment',
-      outputs: [{
-        satoshis: payment.amount,
-        lockingScript,
-        customInstructions: JSON.stringify({
-          derivationPrefix,
-          derivationSuffix,
-          payee: payment.recipient
-        }),
-        outputDescription: 'Payment for PeerPay transaction'
-      }],
+      outputs,
       options: {
         randomizeOutputs: false
       }
@@ -163,7 +237,8 @@ export class PeerPayClient extends MessageBoxClient {
         derivationSuffix
       },
       transaction: paymentAction.tx,
-      amount: payment.amount
+      amount: payment.amount,
+      pushDropMetadata
     }
   }
 
@@ -187,11 +262,19 @@ export class PeerPayClient extends MessageBoxClient {
 
     const paymentToken = await this.createPaymentToken(payment)
 
+    const payload: PaymentMessagePayload = {
+      token: paymentToken,
+      note: payment.note,
+      metadata: payment.metadata,
+      onChainData: payment.onChainData,
+      pushDropMetadata: paymentToken.pushDropMetadata
+    }
+
     // Ensure the recipient is included before sendings
     await this.sendMessage({
       recipient: payment.recipient,
-      messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      body: JSON.stringify(paymentToken)
+      messageBox: payment.messageBox ?? this.paymentMessageBox,
+      body: JSON.stringify(payload)
     }, hostOverride)
   }
 
@@ -212,12 +295,20 @@ export class PeerPayClient extends MessageBoxClient {
   async sendLivePayment (payment: PaymentParams, overrideHost?: string): Promise<void> {
     const paymentToken = await this.createPaymentToken(payment)
 
+    const payload: PaymentMessagePayload = {
+      token: paymentToken,
+      note: payment.note,
+      metadata: payment.metadata,
+      onChainData: payment.onChainData,
+      pushDropMetadata: paymentToken.pushDropMetadata
+    }
+
     try {
       // Attempt WebSocket first
       await this.sendLiveMessage({
         recipient: payment.recipient,
-        messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-        body: JSON.stringify(paymentToken),
+        messageBox: payment.messageBox ?? this.paymentMessageBox,
+        body: JSON.stringify(payload),
       }, overrideHost)
     } catch (err) {
       Logger.warn('[PP CLIENT] sendLiveMessage failed, falling back to HTTP:', err)
@@ -225,8 +316,8 @@ export class PeerPayClient extends MessageBoxClient {
       // Fallback to HTTP if WebSocket fails
       await this.sendMessage({
         recipient: payment.recipient,
-        messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-        body: JSON.stringify(paymentToken), 
+        messageBox: payment.messageBox ?? this.paymentMessageBox,
+        body: JSON.stringify(payload),
       }, overrideHost)
     }
   }
@@ -251,16 +342,21 @@ export class PeerPayClient extends MessageBoxClient {
     overrideHost?: string
   }): Promise<void> {
     await this.listenForLiveMessages({
-      messageBox: STANDARD_PAYMENT_MESSAGEBOX,
-      overrideHost, 
+      messageBox: this.paymentMessageBox,
+      overrideHost,
 
       // Convert PeerMessage → IncomingPayment before calling onPayment
       onMessage: (message: PeerMessage) => {
         Logger.log('[MB CLIENT] Received Live Payment:', message)
+        const payload = this.parseIncomingPaymentPayload(message.body)
         const incomingPayment: IncomingPayment = {
           messageId: message.messageId,
           sender: message.sender,
-          token: safeParse<PaymentToken>(message.body)
+          token: payload.token,
+          note: payload.note,
+          metadata: payload.metadata,
+          onChainData: payload.onChainData,
+          pushDropMetadata: payload.pushDropMetadata ?? payload.token.pushDropMetadata
         }
         Logger.log('[PP CLIENT] Converted PeerMessage to IncomingPayment:', incomingPayment)
         onPayment(incomingPayment)
@@ -383,13 +479,141 @@ export class PeerPayClient extends MessageBoxClient {
   async listIncomingPayments (overrideHost?: string): Promise<IncomingPayment[]> {
     const messages = await this.listMessages({ messageBox: STANDARD_PAYMENT_MESSAGEBOX, host: overrideHost})
     return messages.map((msg: any) => {
-      const parsedToken = safeParse<PaymentToken>(msg.body)
+      const payload = this.parseIncomingPaymentPayload(msg.body)
 
       return {
         messageId: msg.messageId,
         sender: msg.sender,
-        token: parsedToken
+        token: payload.token,
+        note: payload.note,
+        metadata: payload.metadata,
+        onChainData: payload.onChainData,
+        pushDropMetadata: payload.pushDropMetadata ?? payload.token.pushDropMetadata
       }
     })
+  }
+
+  private parseIncomingPaymentPayload (body: string | Record<string, any>): PaymentMessagePayload {
+    const parsed = safeParse<any>(body)
+
+    if (parsed != null && typeof parsed === 'object') {
+      if ('token' in parsed && parsed.token != null) {
+        const payload = parsed as PaymentMessagePayload
+        return {
+          token: payload.token,
+          note: payload.note,
+          metadata: payload.metadata,
+          onChainData: payload.onChainData,
+          pushDropMetadata: payload.pushDropMetadata ?? payload.token?.pushDropMetadata
+        }
+      }
+
+      if ('customInstructions' in parsed && 'transaction' in parsed) {
+        return {
+          token: parsed as PaymentToken,
+          pushDropMetadata: (parsed as PaymentToken).pushDropMetadata
+        }
+      }
+    }
+
+    Logger.warn('[PP CLIENT] Unexpected payment payload format encountered during parsing:', parsed)
+
+    return {
+      token: parsed as PaymentToken
+    }
+  }
+
+  async acknowledgePaymentWithReceipt (payment: IncomingPayment, receiptData?: string | Record<string, any>, options?: { host?: string }): Promise<{ acknowledgement: unknown, receiptPlan?: {
+    outpoint: string
+    receiptScript: string
+    receiptData: string
+    protocolID: [number, string]
+    keyID: string
+    counterparty: string
+  },
+  receiptAction?: any
+  }> {
+    const acknowledgement = await this.acknowledgeMessage({
+      messageIds: [payment.messageId],
+      host: options?.host
+    })
+
+    const pushDropMetadata = payment.pushDropMetadata ?? payment.token.pushDropMetadata
+
+    if (pushDropMetadata === undefined) {
+      Logger.warn('[PP CLIENT] No PushDrop metadata found for payment. Returning simple acknowledgement result.')
+      return { acknowledgement }
+    }
+
+    const normalizedReceiptData = receiptData === undefined
+      ? ''
+      : (typeof receiptData === 'string' ? receiptData : JSON.stringify(receiptData))
+
+    const receiptPushDrop = new PushDrop(this.peerPayWalletClient, this.originator)
+    const receiptFields = [Array.from(Buffer.from(normalizedReceiptData, 'utf8'))]
+    const receiptScript = await receiptPushDrop.lock(
+      receiptFields,
+      PEERPAY_RECEIPT_PROTOCOL,
+      PEERPAY_RECEIPT_KEY_ID,
+      payment.sender,
+      false,
+      true
+    )
+
+    let receiptAction: any
+
+    try {
+      const originalTx = Transaction.fromAtomicBEEF(payment.token.transaction)
+      const txid = originalTx.id('hex')
+      const outpoint = `${txid}.${pushDropMetadata.outputIndex}`
+
+      const plan = {
+        outpoint,
+        receiptScript: receiptScript.toHex(),
+        receiptData: normalizedReceiptData,
+        protocolID: PEERPAY_RECEIPT_PROTOCOL,
+        keyID: PEERPAY_RECEIPT_KEY_ID,
+        counterparty: payment.sender
+      }
+
+      try {
+        const createActionResult = await this.peerPayWalletClient.createAction({
+          description: 'PeerPay receipt settlement',
+          inputBEEF: payment.token.transaction,
+          inputs: [{
+            outpoint,
+            inputDescription: 'PeerPay receipt token spend',
+            unlockingScriptLength: 73
+          }],
+          outputs: [{
+            satoshis: pushDropMetadata.satoshis,
+            lockingScript: plan.receiptScript,
+            outputDescription: 'PeerPay receipt output',
+            customInstructions: JSON.stringify({
+              protocolID: PEERPAY_RECEIPT_PROTOCOL,
+              keyID: PEERPAY_RECEIPT_KEY_ID,
+              counterparty: payment.sender
+            })
+          }],
+          options: {
+            randomizeOutputs: false,
+            noSend: true
+          }
+        }, this.originator)
+
+        receiptAction = {
+          plan,
+          createActionResult
+        }
+      } catch (error) {
+        Logger.warn('[PP CLIENT] Unable to construct full receipt settlement action automatically. Returning plan only.', error)
+        return { acknowledgement, receiptPlan: plan }
+      }
+
+      return { acknowledgement, receiptPlan: plan, receiptAction }
+    } catch (error) {
+      Logger.warn('[PP CLIENT] Failed to build receipt settlement plan. Returning acknowledgement only.', error)
+      return { acknowledgement }
+    }
   }
 }
