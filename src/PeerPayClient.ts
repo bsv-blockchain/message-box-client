@@ -550,7 +550,7 @@ export class PeerPayClient extends MessageBoxClient {
       : (typeof receiptData === 'string' ? receiptData : JSON.stringify(receiptData))
 
     const receiptPushDrop = new PushDrop(this.peerPayWalletClient, this.originator)
-    const receiptFields = [Array.from(Buffer.from(normalizedReceiptData, 'utf8'))]
+    const receiptFields = [Array.from(Buffer.(normalizedReceiptData, 'utf8'))]
     const receiptScript = await receiptPushDrop.lock(
       receiptFields,
       PEERPAY_RECEIPT_PROTOCOL,
