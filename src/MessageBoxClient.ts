@@ -39,7 +39,7 @@ import {
   InternalizeOutput,
   Random,
   OriginatorDomainNameStringUnder250Bytes
-  
+
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import * as Logger from './Utils/logger.js'
@@ -315,7 +315,7 @@ export class MessageBoxClient {
       if (typeof targetHost !== 'string' || targetHost.trim() === '') {
         throw new Error('Cannot initialize WebSocket: No valid host provided')
       }
-      this.socket = AuthSocketClient(targetHost, { wallet: this.walletClient, originator: this.originator}, )
+      this.socket = AuthSocketClient(targetHost, { wallet: this.walletClient, originator: this.originator })
 
       let identitySent = false
       let authenticated = false
@@ -410,7 +410,7 @@ export class MessageBoxClient {
    */
   async queryAdvertisements (
     identityKey?: string,
-    host?: string,
+    host?: string
   ): Promise<AdvertisementToken[]> {
     const hosts: AdvertisementToken[] = []
     try {
@@ -639,7 +639,7 @@ export class MessageBoxClient {
     body,
     messageId,
     skipEncryption,
-    checkPermissions,
+    checkPermissions
   }: SendMessageParams, overrideHost?: string): Promise<SendMessageResponse> {
     if (recipient == null || recipient.trim() === '') {
       throw new Error('[MB CLIENT ERROR] Recipient identity key is required')
@@ -861,7 +861,7 @@ export class MessageBoxClient {
    */
   async sendMessage (
     message: SendMessageParams,
-    overrideHost?: string,
+    overrideHost?: string
   ): Promise<SendMessageResponse> {
     await this.assertInitialized()
     if (message.recipient == null || message.recipient.trim() === '') {
@@ -1219,7 +1219,7 @@ export class MessageBoxClient {
     if (hosts.length === 0) {
       const advertisedHosts = await this.queryAdvertisements(
         await this.getIdentityKey(),
-        undefined,
+        undefined
       )
       hosts = Array.from(new Set([this.host, ...advertisedHosts.map(h => h.host)]))
     }
@@ -2157,7 +2157,7 @@ export class MessageBoxClient {
   private async createMessagePayment (
     recipient: string,
     quote: MessageBoxQuote,
-    description: string = 'MessageBox delivery payment',
+    description: string = 'MessageBox delivery payment'
   ): Promise<Payment> {
     if (quote.recipientFee <= 0 && quote.deliveryFee <= 0) {
       throw new Error('No payment required')
