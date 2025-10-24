@@ -1026,159 +1026,147 @@ async sendMesagetoListRecepients(
     throw new Error('Every message must have a body!')
   }
 
-  // 1) Multi-quote (already in your code)
+  // 1) Multi-quote for all recipients
   const quoteResponse = await this.getMessageBoxQuote({
     recipient: recipients,
     messageBox
   }, overrideHost) as MessageBoxMultiQuote
-  console.log("QUOTE RESPONSE:", quoteResponse)
+
   const quotesByRecipient = Array.isArray(quoteResponse?.quotesByRecipient)
     ? quoteResponse.quotesByRecipient : []
 
   const blocked = (quoteResponse?.blockedRecipients ?? []) as string[]
   const totals = quoteResponse?.totals
 
-  // Quick map for recipient fees
-  const perRecipientQuotes = new Map<string, { recipientFee: number; deliveryFee: number }>()
+  // 2) Filter allowed recipients
+  const allowedRecipients = recipients.filter(r => !blocked.includes(r))
+  if (allowedRecipients.length === 0) {
+    return {
+      status: 'error',
+      description: `All ${recipients.length} recipients are blocked.`,
+      sent: [],
+      blocked,
+      failed: recipients.map(r => ({ recipient: r, error: 'blocked' })),
+      totals
+    }
+  }
+
+  // 3) Map recipient -> fees
+  const perRecipientQuotes = new Map<string, { recipientFee: number, deliveryFee: number }>()
   for (const q of quotesByRecipient) {
     perRecipientQuotes.set(q.recipient, { recipientFee: q.recipientFee, deliveryFee: q.deliveryFee })
   }
 
-  // 2) Filter allowed recipients
-  const allowedRecipients = recipients.filter(r => !blocked.includes(r))
+  // 4) One delivery agent only (batch goes to one server)
+  const { deliveryAgentIdentityKeyByHost } = quoteResponse
+  if (!deliveryAgentIdentityKeyByHost || Object.keys(deliveryAgentIdentityKeyByHost).length === 0) {
+    throw new Error('Missing delivery agent identity keys in quote response.')
+  }
+  if (Object.keys(deliveryAgentIdentityKeyByHost).length > 1 && !overrideHost) {
+    // To keep the single-POST invariant, we require all recipients to share a host
+    throw new Error('Recipients resolve to multiple hosts. Use overrideHost to force a single server or split by host.')
+  }
 
-  // 3) Prepare identity key (unchanged)
+  // pick the host to POST to
+  const finalHost = (overrideHost ?? await this.resolveHostForRecipient(allowedRecipients[0])).replace(/\/+$/,'')
+  const singleDeliveryKey = deliveryAgentIdentityKeyByHost[finalHost]
+    ?? Object.values(deliveryAgentIdentityKeyByHost)[0]
+
+  if (!singleDeliveryKey) {
+    throw new Error('Could not determine server delivery agent identity key.')
+  }
+
+  // 5) Identity key (sender)
   if (!this.myIdentityKey) {
     const keyResult = await this.walletClient.getPublicKey({ identityKey: true }, this.originator)
     this.myIdentityKey = keyResult.publicKey
   }
 
-  // 4) Build recipient -> deliveryAgentIdentityKey mapping
-  //    Use your quoteResponse.deliveryAgentIdentityKeyByHost plus resolveHostForRecipient
-  const { deliveryAgentIdentityKeyByHost } = quoteResponse
-  if(!deliveryAgentIdentityKeyByHost) {
-    console.log("OH NO MY DELIVERY AGENT KEYS ARE MISSING HEEEEEEEEEEEELP")
-    throw new Error('Missing delivery agent identity keys in quote response.')
-  }
-  let singleDeliveryKey: string | undefined = undefined
-  if (Object.keys(deliveryAgentIdentityKeyByHost).length === 1) {
-  singleDeliveryKey = Object.values(deliveryAgentIdentityKeyByHost)[0]
-  }
-  const recipientToDeliveryKey = new Map<string, string>()
+  // 6) Build per-recipient messageIds (HMAC), same order as allowedRecipients
+  const messageIds: string[] = []
   for (const r of allowedRecipients) {
-    const host = overrideHost ?? await this.resolveHostForRecipient(r)
-    const key = deliveryAgentIdentityKeyByHost?.[host] || singleDeliveryKey
-    if (!key) {
-      // If your getMessageBoxQuote grouped differently, fallback to resolving host’s key
-      // (You can add a helper to fetch the agent key if needed)
-      throw new Error(`Missing delivery agent identity key for host ${host}`)
-    }
-    recipientToDeliveryKey.set(r, key)
+    const hmac = await this.walletClient.createHmac({
+      data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
+      protocolID: [1, 'messagebox'],
+      keyID: '1',
+      counterparty: r
+    }, this.originator)
+    const mid = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+    messageIds.push(mid)
   }
 
-  // 5) Create ONE batch payment
+  // 7) Body: for batch route the server expects a single shared body
+  // NOTE: If you need per-recipient encryption, we must change the server payload shape.
+  let finalBody: string
+  if (skipEncryption === true) {
+    finalBody = typeof body === 'string' ? body : JSON.stringify(body)
+  } else {
+    // safest for now: send plaintext; the recipients can decrypt payload fields client-side if needed
+    finalBody = typeof body === 'string' ? body : JSON.stringify(body)
+  }
+
+  // 8) ONE batch payment with server output at index 0
   const paymentData = await this.createMessagePaymentBatch(
     allowedRecipients,
     perRecipientQuotes,
-    singleDeliveryKey,
-    (r: string) => this.resolveHostForRecipient(r)
+    singleDeliveryKey
   )
 
-  // 6) Concurrency limiter (as you had)
-  const limit = (n: number) => {
-    const queue: Promise<any>[] = []
-    return <T>(fn: () => Promise<T>) => {
-      const p = Promise.resolve().then(fn)
-      queue.push(p)
-      const prune = () => queue.splice(queue.indexOf(p), 1)
-      p.then(prune, prune)
-      return queue.length >= n ? Promise.race(queue).then(() => p) : p
+  // 9) Single POST to /sendMessage with recipients[] + messageId[]
+  const requestBody = {
+    message: {
+      recipients: allowedRecipients,
+      messageBox,
+      messageId: messageIds,       // aligned by index with recipients
+      body: finalBody
+    },
+    payment: paymentData
+  }
+
+  Logger.log('[MB CLIENT] Sending HTTP request to:', `${finalHost}/sendMessage`)
+  Logger.log('[MB CLIENT] Request Body (batch):', JSON.stringify({ ...requestBody, payment: { ...paymentData, tx: '<omitted>' } }, null, 2))
+
+  try {
+    const response = await this.authFetch.fetch(`${finalHost}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    })
+
+    const parsed = await response.json().catch(() => ({} as any))
+    if (!response.ok || parsed.status !== 'success') {
+      const msg = !response.ok ? `HTTP ${response.status} - ${response.statusText}` : (parsed.description ?? 'Unknown server error')
+      throw new Error(msg)
+    }
+
+    // server returns { results: [{ recipient, messageId }] }
+    const sent = Array.isArray(parsed.results) ? parsed.results : []
+    const failed: Array<{ recipient: string, error: string }> = [] // handled server-side now
+
+    const status: SendListResult['status'] =
+      sent.length === allowedRecipients.length ? 'success'
+      : sent.length > 0 ? 'partial'
+      : 'error'
+
+    const description =
+      status === 'success'
+        ? `Sent to ${sent.length} recipients.`
+        : status === 'partial'
+          ? `Sent to ${sent.length} recipients; ${allowedRecipients.length - sent.length} failed; ${blocked.length} blocked.`
+          : `Failed to send to ${allowedRecipients.length} allowed recipients. ${blocked.length} blocked.`
+
+    return { status, description, sent, blocked, failed, totals }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return {
+      status: 'error',
+      description: `Batch send failed: ${msg}`,
+      sent: [],
+      blocked,
+      failed: allowedRecipients.map(r => ({ recipient: r, error: msg })),
+      totals
     }
   }
-  const runLimited = limit(4)
-
-  const sent: Array<{ recipient: string, messageId: string }> = []
-  const failed: Array<{ recipient: string, error: string }> = []
-
-  // 7) Send messages, reusing the SAME paymentData
-  const tasks = allowedRecipients.map(r => runLimited(async () => {
-    try {
-      const q = perRecipientQuotes.get(r)
-      if (!q) throw new Error('Missing quote for recipient.')
-
-      // HMAC -> messageId (same as before)
-      const hmac = await this.walletClient.createHmac({
-        data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
-        protocolID: [1, 'messagebox'],
-        keyID: '1',
-        counterparty: r
-      }, this.originator)
-      const messageId = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
-
-      // Encrypt unless skipped
-      let finalBody: string | EncryptedMessage
-      if (skipEncryption === true) {
-        finalBody = typeof body === 'string' ? body : JSON.stringify(body)
-      } else {
-        const encryptedMessage = await this.walletClient.encrypt({
-          protocolID: [1, 'messagebox'],
-          keyID: '1',
-          counterparty: r,
-          plaintext: Utils.toArray(typeof body === 'string' ? body : JSON.stringify(body), 'utf8')
-        }, this.originator)
-        finalBody = JSON.stringify({ encryptedMessage: Utils.toBase64(encryptedMessage.ciphertext) })
-      }
-
-      const finalHost = overrideHost ?? await this.resolveHostForRecipient(r)
-
-      const requestBody = {
-        message: {
-          recipient: r,
-          messageBox,
-          body: finalBody,
-          messageId
-        },
-        payment: paymentData // <-- same tx for everyone
-      }
-
-      const response = await this.authFetch.fetch(`${finalHost}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
-
-      if (response.bodyUsed) throw new Error('[MB CLIENT ERROR] Response body has already been used!')
-      const parsed = await response.json()
-      if (!response.ok || parsed.status !== 'success') {
-        const msg = !response.ok
-          ? `HTTP ${response.status} - ${response.statusText}`
-          : (parsed.description ?? 'Unknown server error')
-        throw new Error(msg)
-      }
-
-      sent.push({ recipient: r, messageId })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error'
-      Logger.error('[MB CLIENT ERROR] Multi-send failure:', msg)
-      failed.push({ recipient: r, error: msg })
-    }
-  }))
-
-  await Promise.all(tasks)
-
-  const status: SendListResult['status'] =
-    sent.length === allowedRecipients.length && failed.length === 0
-      ? 'success'
-      : (sent.length > 0 ? 'partial' : 'error')
-
-  const description =
-    status === 'success'
-      ? `Sent to ${sent.length} recipients.`
-      : status === 'partial'
-        ? `Sent to ${sent.length} recipients; ${failed.length} failed; ${blocked.length} blocked.`
-        : `Failed to send to all ${allowedRecipients.length} allowed recipients. ${blocked.length} blocked.`
-
-  return { status, description, sent, blocked, failed, totals }
 }
   /**
    * @method anointHost
@@ -2592,145 +2580,105 @@ async getMessageBoxQuote(
   }
 
   private async createMessagePaymentBatch(
-  recipients: PubKeyHex[],
-  perRecipientQuotes: Map<PubKeyHex, { recipientFee: number; deliveryFee: number }>,
-  // Map host -> delivery agent key returned by your multi-quote
-  deliveryAgentIdentityKeyByHost: string,
-  // Function to resolve recipient -> host (you already have this)
-  resolveHostForRecipient: (r: PubKeyHex) => Promise<string>,
+  recipients: string[],
+  perRecipientQuotes: Map<string, { recipientFee: number; deliveryFee: number }>,
+  // server (delivery agent) identity key to pay the delivery fee to
+  serverIdentityKey: string,
   description = 'MessageBox delivery payment (batch)'
-): Promise<Payment> {
-  // Nothing due? Bail early
-  const hasAnyFees = recipients.some(r => {
-    const q = perRecipientQuotes.get(r)
-    return q && (q.recipientFee > 0 || q.deliveryFee > 0)
-  })
-  if (!hasAnyFees) {
-    throw new Error('No payment required')
-  }
+  ): Promise<Payment> {
+    const outputs: InternalizeOutput[] = []
+    const createActionOutputs: CreateActionOutput[] = []
 
-  const outputs: InternalizeOutput[] = []
-  const createActionOutputs: CreateActionOutput[] = []
+    // figure out the per-request delivery fee (take it from any quoted recipient)
+    const deliveryFeeOnce =
+      recipients.reduce((acc, r) => {
+        const q = perRecipientQuotes.get(r)
+        return q ? (acc ?? q.deliveryFee) : acc
+      }, undefined as number | undefined) ?? 0
 
-  // Sender identity key used in remittance metadata
-  const senderIdentityKey = await this.getIdentityKey()
+    const senderIdentityKey = await this.getIdentityKey()
+    let outputIndex = 0
 
-  // 1) Aggregate delivery fees by delivery agent (host)
-  //    This collapses multiple recipients on the same overlay into one output.
-  const deliveryByAgent = new Map<string /*deliveryAgentKey*/, number /*sats*/>()
+    // index 0: server delivery fee (if any)
+    if (deliveryFeeOnce > 0) {
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
 
-  for (const r of recipients) {
-    const q = perRecipientQuotes.get(r)
-    if (!q || q.deliveryFee <= 0) continue
+      const { publicKey: agentDerived } = await this.walletClient.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: serverIdentityKey
+      }, this.originator)
 
-    const host = await resolveHostForRecipient(r)
-    const agentKey = deliveryAgentIdentityKeyByHost
-    console.log('Recipient', r, 'host', host, 'agentKey', agentKey, 'deliveryFee', q.deliveryFee)
-    if (!agentKey) {
-      throw new Error(`Missing delivery agent key for host ${host}`)
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(agentDerived).toAddress()).toHex()
+
+      createActionOutputs.push({
+        satoshis: deliveryFeeOnce,
+        lockingScript,
+        outputDescription: 'MessageBox server delivery fee (batch)',
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: serverIdentityKey
+        })
+      })
+
+      outputs.push({
+        outputIndex: outputIndex++,
+        protocol: 'wallet payment',
+        paymentRemittance: { derivationPrefix, derivationSuffix, senderIdentityKey }
+      })
     }
-    deliveryByAgent.set(agentKey, (deliveryByAgent.get(agentKey) ?? 0) + q.deliveryFee)
-  }
 
-  // 2) Create outputs: delivery (by agent) + one per recipient (recipient fees)
-  let outputIndex = 0
+    // recipient outputs start at index 1 (or 0 if no delivery fee)
+    const anyoneWallet = new ProtoWallet('anyone')
+    const anyoneIdKey = (await anyoneWallet.getPublicKey({ identityKey: true })).publicKey
 
-  // Delivery outputs (one per delivery agent)
-  for (const [agentKey, satoshis] of deliveryByAgent.entries()) {
-    if (satoshis <= 0) continue
+    for (const r of recipients) {
+      const q = perRecipientQuotes.get(r)
+      if (!q || q.recipientFee <= 0) continue
 
-    const derivationPrefix = Utils.toBase64(Random(32))
-    const derivationSuffix = Utils.toBase64(Random(32))
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
 
-    // Derived pubkey for the agent
-    const { publicKey: agentDerived } = await this.walletClient.getPublicKey({
-      protocolID: [2, '3241645161d8'],
-      keyID: `${derivationPrefix} ${derivationSuffix}`,
-      counterparty: agentKey
+      const { publicKey: recipientDerived } = await anyoneWallet.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: r
+      })
+
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(recipientDerived).toAddress()).toHex()
+
+      createActionOutputs.push({
+        satoshis: q.recipientFee,
+        lockingScript,
+        outputDescription: `Recipient message fee (${r.slice(0, 8)}…)`,
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: r
+        })
+      })
+
+      outputs.push({
+        outputIndex: outputIndex++,
+        protocol: 'wallet payment',
+        paymentRemittance: {
+          derivationPrefix,
+          derivationSuffix,
+          senderIdentityKey: anyoneIdKey
+        }
+      })
+    }
+
+    const { tx } = await this.walletClient.createAction({
+      description,
+      outputs: createActionOutputs,
+      options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
     }, this.originator)
 
-    const lockingScript = new P2PKH()
-      .lock(PublicKey.fromString(agentDerived).toAddress())
-      .toHex()
+    if (!tx) throw new Error('Failed to create payment transaction')
 
-    createActionOutputs.push({
-      satoshis,
-      lockingScript,
-      outputDescription: 'MessageBox server delivery fee (batch)',
-      customInstructions: JSON.stringify({
-        derivationPrefix,
-        derivationSuffix,
-        recipientIdentityKey: agentKey
-      })
-    })
-
-    outputs.push({
-      outputIndex: outputIndex++,
-      protocol: 'wallet payment',
-      paymentRemittance: {
-        derivationPrefix,
-        derivationSuffix,
-        senderIdentityKey
-      }
-    })
+    return { tx, outputs, description }
   }
-
-  // Recipient fee outputs (one per recipient with > 0)
-  const anyoneWallet = new ProtoWallet('anyone')
-  const anyoneIdKey = (await anyoneWallet.getPublicKey({ identityKey: true })).publicKey
-
-  for (const r of recipients) {
-    const q = perRecipientQuotes.get(r)
-    if (!q || q.recipientFee <= 0) continue
-
-    const derivationPrefix = Utils.toBase64(Random(32))
-    const derivationSuffix = Utils.toBase64(Random(32))
-
-    // Recipient-derived pubkey (BRC-2 anyone derivation)
-    const { publicKey: recipientDerived } = await anyoneWallet.getPublicKey({
-      protocolID: [2, '3241645161d8'],
-      keyID: `${derivationPrefix} ${derivationSuffix}`,
-      counterparty: r
-    })
-    if (!recipientDerived) {
-      throw new Error(`Failed to derive recipient public key for ${r}`)
-    }
-
-    const lockingScript = new P2PKH()
-      .lock(PublicKey.fromString(recipientDerived).toAddress())
-      .toHex()
-
-    createActionOutputs.push({
-      satoshis: q.recipientFee,
-      lockingScript,
-      outputDescription: `Recipient message fee (${r.slice(0, 8)}…)`,
-      customInstructions: JSON.stringify({
-        derivationPrefix,
-        derivationSuffix,
-        recipientIdentityKey: r
-      })
-    })
-
-    outputs.push({
-      outputIndex: outputIndex++,
-      protocol: 'wallet payment',
-      paymentRemittance: {
-        derivationPrefix,
-        derivationSuffix,
-        senderIdentityKey: anyoneIdKey
-      }
-    })
-  }
-
-  // 3) Build the tx (single action including all outputs)
-  const { tx } = await this.walletClient.createAction({
-    description,
-    outputs: createActionOutputs,
-    options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
-  }, this.originator)
-
-  if (!tx) throw new Error('Failed to create payment transaction')
-
-  return { tx, outputs, description }
-}
 }
