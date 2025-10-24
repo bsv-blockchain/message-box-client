@@ -1009,7 +1009,7 @@ export class MessageBoxClient {
  *  - compute per-recipient payment
  * Then sends to the allowed recipients with payment attached.
  */
-async sendMesagetoListRecepients(
+async sendMesagetoRecepients(
   params: SendListParams,
   overrideHost?: string
 ): Promise<SendListResult> {
@@ -2309,7 +2309,7 @@ async getMessageBoxQuote(
   }
 
   // Multiple recipients → new flow
-  return await this.sendMesagetoListRecepients({
+  return await this.sendMesagetoRecepients({
     recipients: recipient,
     messageBox: 'notifications',
     body
