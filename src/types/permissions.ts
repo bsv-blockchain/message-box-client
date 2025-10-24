@@ -75,7 +75,47 @@ export interface ListPermissionsParams {
  */
 export interface GetQuoteParams {
   /** Recipient identity key */
-  recipient: string
+  recipient: string | string[]
   /** MessageBox type */
   messageBox: string
+}
+export interface SendListParams {
+  recipients: PubKeyHex[]
+  messageBox: string
+  body: string | object
+  skipEncryption?: boolean
+}
+
+export interface SendListResult {
+  status: 'success' | 'partial' | 'error'
+  description: string
+  sent: Array<{ recipient: PubKeyHex, messageId: string }>
+  blocked: PubKeyHex[]
+  failed: Array<{ recipient: PubKeyHex, error: string }>
+  totals?: {
+    deliveryFees: number
+    recipientFees: number
+    totalForPayableRecipients: number
+  }
+}
+export interface MessageBoxMultiQuote {
+  quotesByRecipient: Array<{
+    recipient: PubKeyHex
+    messageBox: string
+    deliveryFee: number
+    recipientFee: number
+    status: 'blocked' | 'always_allow' | 'payment_required'
+  }>
+  totals?: {
+    deliveryFees: number
+    recipientFees: number
+    totalForPayableRecipients: number
+  }
+  blockedRecipients: PubKeyHex[]
+  /**
+   * When multiple overlays are involved, each host returns its own
+   * delivery agent identity key. This map preserves them.
+   * If all recipients resolve to one host, you’ll just have one entry.
+   */
+  deliveryAgentIdentityKeyByHost: Record<string, string>
 }
