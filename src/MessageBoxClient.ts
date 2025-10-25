@@ -48,9 +48,12 @@ import {
   SetMessageBoxPermissionParams,
   GetMessageBoxPermissionParams,
   MessageBoxPermission,
+  MessageBoxMultiQuote,
   MessageBoxQuote,
   ListPermissionsParams,
-  GetQuoteParams
+  GetQuoteParams,
+  SendListParams,
+  SendListResult,
 } from './types/permissions.js'
 
 const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
@@ -884,7 +887,7 @@ export class MessageBoxClient {
         const quote = await this.getMessageBoxQuote({
           recipient: message.recipient,
           messageBox: message.messageBox
-        }, overrideHost)
+        }, overrideHost) as MessageBoxQuote
 
         if (quote.recipientFee === -1) {
           throw new Error('You have been blocked from sending messages to this recipient.')
@@ -999,6 +1002,172 @@ export class MessageBoxClient {
     }
   }
 
+
+  /**
+ * Multi-recipient sender. Uses the multi-quote route to:
+ *  - identify blocked recipients
+ *  - compute per-recipient payment
+ * Then sends to the allowed recipients with payment attached.
+ */
+async sendMesagetoRecepients(
+  params: SendListParams,
+  overrideHost?: string
+): Promise<SendListResult> {
+  await this.assertInitialized()
+
+  const { recipients, messageBox, body, skipEncryption } = params
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    throw new Error('You must provide at least one recipient!')
+  }
+  if (!messageBox || messageBox.trim() === '') {
+    throw new Error('You must provide a messageBox to send this message into!')
+  }
+  if (body == null || (typeof body === 'string' && body.trim().length === 0)) {
+    throw new Error('Every message must have a body!')
+  }
+
+  // 1) Multi-quote for all recipients
+  const quoteResponse = await this.getMessageBoxQuote({
+    recipient: recipients,
+    messageBox
+  }, overrideHost) as MessageBoxMultiQuote
+
+  const quotesByRecipient = Array.isArray(quoteResponse?.quotesByRecipient)
+    ? quoteResponse.quotesByRecipient : []
+
+  const blocked = (quoteResponse?.blockedRecipients ?? []) as string[]
+  const totals = quoteResponse?.totals
+
+  // 2) Filter allowed recipients
+  const allowedRecipients = recipients.filter(r => !blocked.includes(r))
+  if (allowedRecipients.length === 0) {
+    return {
+      status: 'error',
+      description: `All ${recipients.length} recipients are blocked.`,
+      sent: [],
+      blocked,
+      failed: recipients.map(r => ({ recipient: r, error: 'blocked' })),
+      totals
+    }
+  }
+
+  // 3) Map recipient -> fees
+  const perRecipientQuotes = new Map<string, { recipientFee: number, deliveryFee: number }>()
+  for (const q of quotesByRecipient) {
+    perRecipientQuotes.set(q.recipient, { recipientFee: q.recipientFee, deliveryFee: q.deliveryFee })
+  }
+
+  // 4) One delivery agent only (batch goes to one server)
+  const { deliveryAgentIdentityKeyByHost } = quoteResponse
+  if (!deliveryAgentIdentityKeyByHost || Object.keys(deliveryAgentIdentityKeyByHost).length === 0) {
+    throw new Error('Missing delivery agent identity keys in quote response.')
+  }
+  if (Object.keys(deliveryAgentIdentityKeyByHost).length > 1 && !overrideHost) {
+    // To keep the single-POST invariant, we require all recipients to share a host
+    throw new Error('Recipients resolve to multiple hosts. Use overrideHost to force a single server or split by host.')
+  }
+
+  // pick the host to POST to
+  const finalHost = (overrideHost ?? await this.resolveHostForRecipient(allowedRecipients[0])).replace(/\/+$/,'')
+  const singleDeliveryKey = deliveryAgentIdentityKeyByHost[finalHost]
+    ?? Object.values(deliveryAgentIdentityKeyByHost)[0]
+
+  if (!singleDeliveryKey) {
+    throw new Error('Could not determine server delivery agent identity key.')
+  }
+
+  // 5) Identity key (sender)
+  if (!this.myIdentityKey) {
+    const keyResult = await this.walletClient.getPublicKey({ identityKey: true }, this.originator)
+    this.myIdentityKey = keyResult.publicKey
+  }
+
+  // 6) Build per-recipient messageIds (HMAC), same order as allowedRecipients
+  const messageIds: string[] = []
+  for (const r of allowedRecipients) {
+    const hmac = await this.walletClient.createHmac({
+      data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
+      protocolID: [1, 'messagebox'],
+      keyID: '1',
+      counterparty: r
+    }, this.originator)
+    const mid = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+    messageIds.push(mid)
+  }
+
+  // 7) Body: for batch route the server expects a single shared body
+  // NOTE: If you need per-recipient encryption, we must change the server payload shape.
+  let finalBody: string
+  if (skipEncryption === true) {
+    finalBody = typeof body === 'string' ? body : JSON.stringify(body)
+  } else {
+    // safest for now: send plaintext; the recipients can decrypt payload fields client-side if needed
+    finalBody = typeof body === 'string' ? body : JSON.stringify(body)
+  }
+
+  // 8) ONE batch payment with server output at index 0
+  const paymentData = await this.createMessagePaymentBatch(
+    allowedRecipients,
+    perRecipientQuotes,
+    singleDeliveryKey
+  )
+
+  // 9) Single POST to /sendMessage with recipients[] + messageId[]
+  const requestBody = {
+    message: {
+      recipients: allowedRecipients,
+      messageBox,
+      messageId: messageIds,       // aligned by index with recipients
+      body: finalBody
+    },
+    payment: paymentData
+  }
+
+  Logger.log('[MB CLIENT] Sending HTTP request to:', `${finalHost}/sendMessage`)
+  Logger.log('[MB CLIENT] Request Body (batch):', JSON.stringify({ ...requestBody, payment: { ...paymentData, tx: '<omitted>' } }, null, 2))
+
+  try {
+    const response = await this.authFetch.fetch(`${finalHost}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    })
+
+    const parsed = await response.json().catch(() => ({} as any))
+    if (!response.ok || parsed.status !== 'success') {
+      const msg = !response.ok ? `HTTP ${response.status} - ${response.statusText}` : (parsed.description ?? 'Unknown server error')
+      throw new Error(msg)
+    }
+
+    // server returns { results: [{ recipient, messageId }] }
+    const sent = Array.isArray(parsed.results) ? parsed.results : []
+    const failed: Array<{ recipient: string, error: string }> = [] // handled server-side now
+
+    const status: SendListResult['status'] =
+      sent.length === allowedRecipients.length ? 'success'
+      : sent.length > 0 ? 'partial'
+      : 'error'
+
+    const description =
+      status === 'success'
+        ? `Sent to ${sent.length} recipients.`
+        : status === 'partial'
+          ? `Sent to ${sent.length} recipients; ${allowedRecipients.length - sent.length} failed; ${blocked.length} blocked.`
+          : `Failed to send to ${allowedRecipients.length} allowed recipients. ${blocked.length} blocked.`
+
+    return { status, description, sent, blocked, failed, totals }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return {
+      status: 'error',
+      description: `Batch send failed: ${msg}`,
+      sent: [],
+      blocked,
+      failed: allowedRecipients.map(r => ({ recipient: r, error: msg })),
+      totals
+    }
+  }
+}
   /**
    * @method anointHost
    * @async
@@ -1792,22 +1961,30 @@ export class MessageBoxClient {
    *   messageBox: 'notifications'
    * })
    */
-  async getMessageBoxQuote (params: GetQuoteParams, overrideHost?: string): Promise<MessageBoxQuote> {
+async getMessageBoxQuote(
+  params: GetQuoteParams,
+  overrideHost?: string
+): Promise<MessageBoxQuote | MessageBoxMultiQuote> {
+  // ---------- SINGLE RECIPIENT (back-compat) ----------
+  if (!Array.isArray(params.recipient)) {
     const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
     const queryParams = new URLSearchParams({
       recipient: params.recipient,
       messageBox: params.messageBox
     })
 
-    Logger.log('[MB CLIENT] Getting messageBox quote...')
-
-    const response = await this.authFetch.fetch(`${finalHost}/permissions/quote?${queryParams.toString()}`, {
-      method: 'GET'
-    })
-
+    Logger.log('[MB CLIENT] Getting messageBox quote (single)...')
+    console.log("HELP IM QUOTING",`${finalHost}/permissions/quote?${queryParams.toString()}`)
+    const response = await this.authFetch.fetch(
+      `${finalHost}/permissions/quote?${queryParams.toString()}`,
+      { method: 'GET' }
+    )
+    console.log("server response from getquote]",response)
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(`Failed to get quote: HTTP ${response.status} - ${String(errorData.description) ?? response.statusText}`)
+      throw new Error(
+        `Failed to get quote: HTTP ${response.status} - ${String(errorData.description) ?? response.statusText}`
+      )
     }
 
     const { status, description, quote } = await response.json()
@@ -1816,7 +1993,7 @@ export class MessageBoxClient {
     }
 
     const deliveryAgentIdentityKey = response.headers.get('x-bsv-auth-identity-key')
-
+    console.log("deliveryAgentIdentityKey",deliveryAgentIdentityKey)
     if (deliveryAgentIdentityKey == null) {
       throw new Error('Failed to get quote: Delivery agent did not provide their identity key')
     }
@@ -1827,6 +2004,129 @@ export class MessageBoxClient {
       deliveryAgentIdentityKey
     }
   }
+
+  // ---------- MULTI RECIPIENTS ----------
+  const recipients = params.recipient
+  if (recipients.length === 0) {
+    throw new Error('At least one recipient is required.')
+  }
+
+  Logger.log('[MB CLIENT] Getting messageBox quotes (multi)...')
+  console.log("[MB CLIENT] Getting messageBox quotes (multi)...")
+  // Resolve host per recipient (unless caller forces overrideHost)
+  // Group recipients by host so we call each overlay once.
+  const hostGroups = new Map<string, PubKeyHex[]>()
+  for (const r of recipients) {
+    const host = overrideHost ?? await this.resolveHostForRecipient(r)
+    const list = hostGroups.get(host)
+    if (list) list.push(r)
+    else hostGroups.set(host, [r])
+  }
+
+  const deliveryAgentIdentityKeyByHost: Record<string, string> = {}
+  const quotesByRecipient: Array<{
+    recipient: PubKeyHex
+    messageBox: string
+    deliveryFee: number
+    recipientFee: number
+    status: 'blocked' | 'always_allow' | 'payment_required'
+  }> = []
+  const blockedRecipients: PubKeyHex[] = []
+
+  let totalDeliveryFees = 0
+  let totalRecipientFees = 0
+
+  // Helper to fetch one host group
+  const fetchGroup = async (host: string, groupRecipients: PubKeyHex[]) => {
+    const qp = new URLSearchParams()
+    for (const r of groupRecipients) qp.append('recipient', r)
+    qp.set('messageBox', params.messageBox)
+
+    const url = `${host}/permissions/quote?${qp.toString()}`
+    Logger.log('[MB CLIENT] Multi-quote GET:', url)
+
+    const resp = await this.authFetch.fetch(url, { method: 'GET' })
+
+    if (!resp.ok) {
+      const errorData = await resp.json().catch(() => ({}))
+      throw new Error(
+        `Failed to get quote (host ${host}): HTTP ${resp.status} - ${String(errorData.description) ?? resp.statusText}`
+      )
+    }
+
+    const deliveryAgentKey = resp.headers.get('x-bsv-auth-identity-key')
+    if (!deliveryAgentKey) {
+      throw new Error(`Failed to get quote (host ${host}): missing delivery agent identity key`)
+    }
+    deliveryAgentIdentityKeyByHost[host] = deliveryAgentKey
+
+    const payload = await resp.json()
+
+    // Server supports both shapes. For multi we expect:
+    //  { quotesByRecipient, totals, blockedRecipients }
+    if (Array.isArray(payload?.quotesByRecipient)) {
+      // merge quotes
+      for (const q of payload.quotesByRecipient) {
+        quotesByRecipient.push({
+          recipient: q.recipient,
+          messageBox: q.messageBox,
+          deliveryFee: q.deliveryFee,
+          recipientFee: q.recipientFee,
+          status: q.status
+        })
+        // aggregate client-side totals as well (in case we hit multiple hosts)
+        totalDeliveryFees += q.deliveryFee
+        if (q.recipientFee === -1) {
+          if (!blockedRecipients.includes(q.recipient)) blockedRecipients.push(q.recipient)
+        } else {
+          totalRecipientFees += q.recipientFee
+        }
+      }
+
+      // Also merge server totals if present (they are per-host); we already aggregated above,
+      // so we don’t need to use payload.totals except for sanity/logging.
+      if (Array.isArray(payload?.blockedRecipients)) {
+        for (const br of payload.blockedRecipients) {
+          if (!blockedRecipients.includes(br)) blockedRecipients.push(br)
+        }
+      }
+    } else if (payload?.quote) {
+      // Defensive: if an overlay still returns single-quote shape for multi (shouldn’t),
+      // we map it to each recipient in the group uniformly.
+      for (const r of groupRecipients) {
+        const { deliveryFee, recipientFee } = payload.quote
+        const status =
+          recipientFee === -1 ? 'blocked' : recipientFee === 0 ? 'always_allow' : 'payment_required'
+        quotesByRecipient.push({
+          recipient: r,
+          messageBox: params.messageBox,
+          deliveryFee,
+          recipientFee,
+          status
+        })
+        totalDeliveryFees += deliveryFee
+        if (recipientFee === -1) blockedRecipients.push(r)
+        else totalRecipientFees += recipientFee
+      }
+    } else {
+      throw new Error(`Unexpected quote response shape from host ${host}`)
+    }
+  }
+
+  // Run all host groups (in parallel, but you can limit if needed)
+  await Promise.all(Array.from(hostGroups.entries()).map(([host, group]) => fetchGroup(host, group)))
+
+  return {
+    quotesByRecipient,
+    totals: {
+      deliveryFees: totalDeliveryFees,
+      recipientFees: totalRecipientFees,
+      totalForPayableRecipients: totalDeliveryFees + totalRecipientFees
+    },
+    blockedRecipients,
+    deliveryAgentIdentityKeyByHost
+  }
+}
 
   /**
    * @method listMessageBoxPermissions
@@ -1991,15 +2291,15 @@ export class MessageBoxClient {
    * // Send with maximum payment limit for safety
    * await client.sendNotification('03def456...', { title: 'Alert', body: 'Important update' }, 50)
    */
-  async sendNotification (
-    recipient: PubKeyHex,
-    body: string | object,
-    overrideHost?: string
-  ): Promise<SendMessageResponse> {
-    await this.assertInitialized()
+  async sendNotification(
+  recipient: PubKeyHex | PubKeyHex[],
+  body: string | object,
+  overrideHost?: string
+): Promise<SendMessageResponse | SendListResult> {
+  await this.assertInitialized()
 
-    // Use sendMessage with permission checking enabled
-    // This eliminates duplication of quote fetching and payment logic
+  // Single recipient → keep original flow
+  if (!Array.isArray(recipient)) {
     return await this.sendMessage({
       recipient,
       messageBox: 'notifications',
@@ -2007,6 +2307,14 @@ export class MessageBoxClient {
       checkPermissions: true
     }, overrideHost)
   }
+
+  // Multiple recipients → new flow
+  return await this.sendMesagetoRecepients({
+    recipients: recipient,
+    messageBox: 'notifications',
+    body
+  }, overrideHost)
+}
 
   /**
    * Register a device for FCM push notifications.
@@ -2178,6 +2486,7 @@ export class MessageBoxClient {
       const derivationSuffix = Utils.toBase64(Random(32))
 
       // Get host's derived public key
+      console.log('delivery agent:', quote.deliveryAgentIdentityKey)
       const { publicKey: derivedKeyResult } = await this.walletClient.getPublicKey({
         protocolID: [2, '3241645161d8'],
         keyID: `${derivationPrefix} ${derivationSuffix}`,
@@ -2268,5 +2577,108 @@ export class MessageBoxClient {
       description
       // labels
     }
+  }
+
+  private async createMessagePaymentBatch(
+  recipients: string[],
+  perRecipientQuotes: Map<string, { recipientFee: number; deliveryFee: number }>,
+  // server (delivery agent) identity key to pay the delivery fee to
+  serverIdentityKey: string,
+  description = 'MessageBox delivery payment (batch)'
+  ): Promise<Payment> {
+    const outputs: InternalizeOutput[] = []
+    const createActionOutputs: CreateActionOutput[] = []
+
+    // figure out the per-request delivery fee (take it from any quoted recipient)
+    const deliveryFeeOnce =
+      recipients.reduce((acc, r) => {
+        const q = perRecipientQuotes.get(r)
+        return q ? (acc ?? q.deliveryFee) : acc
+      }, undefined as number | undefined) ?? 0
+
+    const senderIdentityKey = await this.getIdentityKey()
+    let outputIndex = 0
+
+    // index 0: server delivery fee (if any)
+    if (deliveryFeeOnce > 0) {
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
+
+      const { publicKey: agentDerived } = await this.walletClient.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: serverIdentityKey
+      }, this.originator)
+
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(agentDerived).toAddress()).toHex()
+
+      createActionOutputs.push({
+        satoshis: deliveryFeeOnce,
+        lockingScript,
+        outputDescription: 'MessageBox server delivery fee (batch)',
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: serverIdentityKey
+        })
+      })
+
+      outputs.push({
+        outputIndex: outputIndex++,
+        protocol: 'wallet payment',
+        paymentRemittance: { derivationPrefix, derivationSuffix, senderIdentityKey }
+      })
+    }
+
+    // recipient outputs start at index 1 (or 0 if no delivery fee)
+    const anyoneWallet = new ProtoWallet('anyone')
+    const anyoneIdKey = (await anyoneWallet.getPublicKey({ identityKey: true })).publicKey
+
+    for (const r of recipients) {
+      const q = perRecipientQuotes.get(r)
+      if (!q || q.recipientFee <= 0) continue
+
+      const derivationPrefix = Utils.toBase64(Random(32))
+      const derivationSuffix = Utils.toBase64(Random(32))
+
+      const { publicKey: recipientDerived } = await anyoneWallet.getPublicKey({
+        protocolID: [2, '3241645161d8'],
+        keyID: `${derivationPrefix} ${derivationSuffix}`,
+        counterparty: r
+      })
+
+      const lockingScript = new P2PKH().lock(PublicKey.fromString(recipientDerived).toAddress()).toHex()
+
+      createActionOutputs.push({
+        satoshis: q.recipientFee,
+        lockingScript,
+        outputDescription: `Recipient message fee (${r.slice(0, 8)}…)`,
+        customInstructions: JSON.stringify({
+          derivationPrefix,
+          derivationSuffix,
+          recipientIdentityKey: r
+        })
+      })
+
+      outputs.push({
+        outputIndex: outputIndex++,
+        protocol: 'wallet payment',
+        paymentRemittance: {
+          derivationPrefix,
+          derivationSuffix,
+          senderIdentityKey: anyoneIdKey
+        }
+      })
+    }
+
+    const { tx } = await this.walletClient.createAction({
+      description,
+      outputs: createActionOutputs,
+      options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
+    }, this.originator)
+
+    if (!tx) throw new Error('Failed to create payment transaction')
+
+    return { tx, outputs, description }
   }
 }
