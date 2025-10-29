@@ -59,6 +59,7 @@ export interface PaymentToken {
   }
   transaction: AtomicBEEF
   amount: number
+  outputIndex?: number
 }
 
 /**
@@ -68,6 +69,7 @@ export interface IncomingPayment {
   messageId: string
   sender: string
   token: PaymentToken
+  outputIndex?: number
 }
 
 /**
@@ -296,7 +298,7 @@ export class PeerPayClient extends MessageBoxClient {
             derivationSuffix: payment.token.customInstructions.derivationSuffix,
             senderIdentityKey: payment.sender
           },
-          outputIndex: STANDARD_PAYMENT_OUTPUT_INDEX,
+          outputIndex: payment.token.outputIndex ?? STANDARD_PAYMENT_OUTPUT_INDEX,
           protocol: 'wallet payment'
         }],
         labels: ['peerpay'],
