@@ -116,8 +116,8 @@ export class PeerPayClient extends MessageBoxClient {
     };
 
     // Generate derivation paths using correct nonce function
-    const derivationPrefix = await createNonce(this.peerPayWalletClient)
-    const derivationSuffix = await createNonce(this.peerPayWalletClient)
+    const derivationPrefix = await createNonce(this.peerPayWalletClient, this.originator)
+    const derivationSuffix = await createNonce(this.peerPayWalletClient, this.originator)
 
     Logger.log(`[PP CLIENT] Derivation Prefix: ${derivationPrefix}`)
     Logger.log(`[PP CLIENT] Derivation Suffix: ${derivationSuffix}`)
