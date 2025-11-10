@@ -78,7 +78,7 @@ export interface IncomingPayment {
 export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
-  private messageBox: string
+  private readonly messageBox: string
 
   constructor(config: PeerPayClientConfig) {
     const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
@@ -116,8 +116,8 @@ export class PeerPayClient extends MessageBoxClient {
     };
 
     // Generate derivation paths using correct nonce function
-    const derivationPrefix = await createNonce(this.peerPayWalletClient)
-    const derivationSuffix = await createNonce(this.peerPayWalletClient)
+    const derivationPrefix = await createNonce(this.peerPayWalletClient, 'self', this.originator)
+    const derivationSuffix = await createNonce(this.peerPayWalletClient, 'self', this.originator)
 
     Logger.log(`[PP CLIENT] Derivation Prefix: ${derivationPrefix}`)
     Logger.log(`[PP CLIENT] Derivation Suffix: ${derivationSuffix}`)
