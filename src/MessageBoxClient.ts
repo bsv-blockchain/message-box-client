@@ -453,7 +453,7 @@ export class MessageBoxClient {
     } catch (err) {
       Logger.error('[MB CLIENT ERROR] _queryAdvertisements failed:', err)
     }
-    return hosts
+    return hosts.filter(item => item.host !== 'https://messagebox.example.com')
   }
 
   /**
