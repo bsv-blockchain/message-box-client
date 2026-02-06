@@ -4,6 +4,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bsv-blockchain/message-box-client.git"
+  },
+  "homepage": "https://github.com/bsv-blockchain/message-box-client#readme",
+  "bugs": {
+    "url": "https://github.com/bsv-blockchain/message-box-client/issues"
+  },
   "description": "A client for P2P messaging and payments",
   "type": "module",
   "main": "dist/cjs/mod.js",
