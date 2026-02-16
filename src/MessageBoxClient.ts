@@ -1083,17 +1083,16 @@ async sendMesagetoRecepients(
   }
 
   // 6) Build per-recipient messageIds (HMAC), same order as allowedRecipients
-  const messageIds: string[] = []
-  for (const r of allowedRecipients) {
+  const bodyBytes = Array.from(new TextEncoder().encode(JSON.stringify(body)))
+  const messageIds: string[] = await this.mapWithConcurrency(allowedRecipients, 8, async (r) => {
     const hmac = await this.walletClient.createHmac({
-      data: Array.from(new TextEncoder().encode(JSON.stringify(body))),
+      data: bodyBytes,
       protocolID: [1, 'messagebox'],
       keyID: '1',
       counterparty: r
     }, this.originator)
-    const mid = Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
-    messageIds.push(mid)
-  }
+    return Array.from(hmac.hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+  })
 
   // 7) Body: for batch route the server expects a single shared body
   // NOTE: If you need per-recipient encryption, we must change the server payload shape.
@@ -1444,108 +1443,112 @@ async sendMesagetoRecepients(
 
     const messages: PeerMessage[] = Array.from(dedupMap.values())
 
-    for (const message of messages) {
-      try {
-        const parsedBody: unknown =
-          typeof message.body === 'string' ? this.tryParse(message.body) : message.body
+    const parsed = messages.map(message => {
+      const parsedBody: unknown =
+        typeof message.body === 'string' ? this.tryParse(message.body) : message.body
 
-        let messageContent: any = parsedBody
-        let paymentData: Payment | undefined
+      let messageContent: any = parsedBody
+      let paymentData: Payment | undefined
 
-        if (
-          parsedBody != null &&
-          typeof parsedBody === 'object' &&
-          'message' in parsedBody
-        ) {
-          // Handle wrapped message format (with payment data)
-          const wrappedMessage = (parsedBody as any).message
-          messageContent = typeof wrappedMessage === 'string'
-            ? this.tryParse(wrappedMessage)
-            : wrappedMessage
-          paymentData = (parsedBody as any).payment
-        }
+      if (
+        parsedBody != null &&
+        typeof parsedBody === 'object' &&
+        'message' in parsedBody
+      ) {
+        const wrappedMessage = (parsedBody as any).message
+        messageContent = typeof wrappedMessage === 'string'
+          ? this.tryParse(wrappedMessage)
+          : wrappedMessage
+        paymentData = (parsedBody as any).payment
+      }
 
-        // Process payment if present - server now only stores recipient payments
-        if (acceptPayments && paymentData?.tx != null && paymentData.outputs != null) {
-          try {
+      return { message, parsedBody, messageContent, paymentData }
+    })
+
+    if (acceptPayments) {
+      const paymentJobs = parsed
+        .filter(p => p.paymentData?.tx != null && p.paymentData.outputs != null)
+
+      await this.mapWithConcurrency(paymentJobs, 2, async (p) => {
+        try {
+          Logger.log(
+            `[MB CLIENT] Processing recipient payment in message from ${String(p.message.sender)}…`
+          )
+
+          const recipientOutputs = (p.paymentData as Payment).outputs.filter(
+            output => output.protocol === 'wallet payment'
+          )
+
+          if (recipientOutputs.length > 0) {
             Logger.log(
-              `[MB CLIENT] Processing recipient payment in message from ${String(message.sender)}…`
+              `[MB CLIENT] Internalizing ${recipientOutputs.length} recipient payment output(s)…`
             )
 
-            // All outputs in the stored payment data are for the recipient
-            // (delivery fees are already processed by the server)
-            const recipientOutputs = paymentData.outputs.filter(
-              output => output.protocol === 'wallet payment'
-            )
+            const internalizeResult = await this.walletClient.internalizeAction({
+              tx: (p.paymentData as Payment).tx,
+              outputs: recipientOutputs,
+              description: (p.paymentData as Payment).description ?? 'MessageBox recipient payment'
+            }, this.originator)
 
-            if (recipientOutputs.length > 0) {
+            if (internalizeResult.accepted) {
               Logger.log(
-                `[MB CLIENT] Internalizing ${recipientOutputs.length} recipient payment output(s)…`
+                '[MB CLIENT] Successfully internalized recipient payment'
               )
-
-              const internalizeResult = await this.walletClient.internalizeAction({
-                tx: paymentData.tx,
-                outputs: recipientOutputs,
-                description: paymentData.description ?? 'MessageBox recipient payment'
-              }, this.originator)
-
-              if (internalizeResult.accepted) {
-                Logger.log(
-                  '[MB CLIENT] Successfully internalized recipient payment'
-                )
-              } else {
-                Logger.warn(
-                  '[MB CLIENT] Recipient payment internalization was not accepted'
-                )
-              }
             } else {
-              Logger.log(
-                '[MB CLIENT] No wallet payment outputs found in payment data'
+              Logger.warn(
+                '[MB CLIENT] Recipient payment internalization was not accepted'
               )
             }
-          } catch (paymentError) {
-            Logger.error(
-              '[MB CLIENT ERROR] Failed to internalize recipient payment:',
-              paymentError
+          } else {
+            Logger.log(
+              '[MB CLIENT] No wallet payment outputs found in payment data'
             )
-            // Continue processing the message even if payment fails
           }
+        } catch (paymentError) {
+          Logger.error(
+            '[MB CLIENT ERROR] Failed to internalize recipient payment:',
+            paymentError
+          )
         }
+        return null
+      })
+    }
 
-        // Handle message decryption
+    await this.mapWithConcurrency(parsed, 4, async (p) => {
+      try {
         if (
-          messageContent != null &&
-          typeof messageContent === 'object' &&
-          typeof (messageContent).encryptedMessage === 'string'
+          p.messageContent != null &&
+          typeof p.messageContent === 'object' &&
+          typeof (p.messageContent).encryptedMessage === 'string'
         ) {
           Logger.log(
-            `[MB CLIENT] Decrypting message from ${String(message.sender)}…`
+            `[MB CLIENT] Decrypting message from ${String(p.message.sender)}…`
           )
 
           const decrypted = await this.walletClient.decrypt({
             protocolID: [1, 'messagebox'],
             keyID: '1',
-            counterparty: message.sender,
+            counterparty: p.message.sender,
             ciphertext: Utils.toArray(
-              messageContent.encryptedMessage,
+              (p.messageContent as any).encryptedMessage,
               'base64'
             )
           }, this.originator)
 
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
-          message.body = this.tryParse(decryptedText)
+          p.message.body = this.tryParse(decryptedText)
         } else {
-          // For non-encrypted messages, use the processed content
-          message.body = messageContent ?? parsedBody
+          p.message.body = p.messageContent ?? p.parsedBody
         }
       } catch (err) {
         Logger.error(
           '[MB CLIENT ERROR] Failed to parse or decrypt message in list:',
           err
         )
-        message.body = '[Error: Failed to decrypt or parse message]'
+        p.message.body = '[Error: Failed to decrypt or parse message]'
       }
-    }
+      return null
+    })
 
     // Sort newest‑first for a deterministic order
     messages.sort(
@@ -1603,7 +1606,8 @@ async sendMesagetoRecepients(
         return raw
       }
     }
-    for (const message of messages) {
+
+    await this.mapWithConcurrency(messages, 4, async (message) => {
       try {
         const parsedBody: unknown =
           typeof message.body === 'string' ? tryParse(message.body) : message.body
@@ -1613,13 +1617,11 @@ async sendMesagetoRecepients(
           typeof parsedBody === 'object' &&
           'message' in parsedBody
         ) {
-          // Handle wrapped message format (with payment data)
           const wrappedMessage = (parsedBody as any).message
           messageContent = typeof wrappedMessage === 'string'
             ? tryParse(wrappedMessage)
             : wrappedMessage
         }
-        // Handle message decryption
         if (
           messageContent != null &&
           typeof messageContent === 'object' &&
@@ -1637,7 +1639,6 @@ async sendMesagetoRecepients(
           const decryptedText = Utils.toUTF8(decrypted.plaintext)
           message.body = tryParse(decryptedText)
         } else {
-          // For non-encrypted messages, use the processed content
           message.body = messageContent ?? parsedBody
         }
       } catch (err) {
@@ -1647,7 +1648,8 @@ async sendMesagetoRecepients(
         )
         message.body = '[Error: Failed to decrypt or parse message]'
       }
-    }
+      return null
+    })
     return messages
   }
 
@@ -1674,6 +1676,33 @@ async sendMesagetoRecepients(
     } catch {
       return raw
     }
+  }
+
+  private async mapWithConcurrency<T, R> (
+    items: T[],
+    limit: number,
+    fn: (item: T, index: number) => Promise<R>
+  ): Promise<R[]> {
+    if (items.length === 0) return []
+    if (!Number.isFinite(limit) || limit >= items.length) {
+      return await Promise.all(items.map(fn))
+    }
+
+    const workerCount = Math.max(1, Math.min(limit, items.length))
+    const results: R[] = new Array(items.length)
+    let nextIndex = 0
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const currentIndex = nextIndex
+        nextIndex++
+        if (currentIndex >= items.length) return
+        results[currentIndex] = await fn(items[currentIndex], currentIndex)
+      }
+    })
+
+    await Promise.all(workers)
+    return results
   }
 
   /**
@@ -2016,8 +2045,14 @@ async getMessageBoxQuote(
   // Resolve host per recipient (unless caller forces overrideHost)
   // Group recipients by host so we call each overlay once.
   const hostGroups = new Map<string, PubKeyHex[]>()
-  for (const r of recipients) {
-    const host = overrideHost ?? await this.resolveHostForRecipient(r)
+
+  const resolvedHosts = overrideHost != null
+    ? recipients.map(() => overrideHost)
+    : await this.mapWithConcurrency(recipients, 8, async (r) => await this.resolveHostForRecipient(r))
+
+  for (let i = 0; i < recipients.length; i++) {
+    const r = recipients[i]
+    const host = resolvedHosts[i]
     const list = hostGroups.get(host)
     if (list) list.push(r)
     else hostGroups.set(host, [r])
