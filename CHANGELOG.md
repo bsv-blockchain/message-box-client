@@ -24,6 +24,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [2.0.1] - 2026-02-16
+
+### Changed
+
+- Promise.all()!!
+
 ## [2.0.0] - 2026-02-06
 
 ### Changed
