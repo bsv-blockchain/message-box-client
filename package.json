@@ -1,6 +1,6 @@
 {
   "name": "@bsv/message-box-client",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publishConfig": {
     "access": "public"
   },
@@ -82,7 +82,7 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
-    "@bsv/authsocket-client": "^1.0.13",
-    "@bsv/sdk": "^2.0.1"
+    "@bsv/authsocket-client": "^2.0.1",
+    "@bsv/sdk": "^2.0.3"
   }
 }
