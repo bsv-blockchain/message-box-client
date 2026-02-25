@@ -29,60 +29,15 @@
  */
 
 import { PubKeyHex } from '@bsv/sdk'
+import type {
+  CommsLayer as SdkCommsLayer,
+  PeerMessage as SdkRemittancePeerMessage
+} from '@bsv/sdk'
 import type { MessageBoxClient } from './MessageBoxClient.js'
+import type { PeerMessage as MessageBoxPeerMessage } from './types.js'
 
-/**
- * Peer message format expected by RemittanceManager (matches ts-sdk PeerMessage)
- * This differs from message-box-client's PeerMessage which includes created_at/updated_at
- * TODO: Import from ts-sdk once PR is merged.
- */
-export interface RemittancePeerMessage {
-  messageId: string
-  sender: PubKeyHex
-  recipient: PubKeyHex
-  messageBox: string
-  body: string
-}
-
-/**
- * Communications layer interface for RemittanceManager
- * TODO: Import from ts-sdk once PR is merged.
- *
- * This intentionally mirrors the essential subset of message-box-client / MessageBoxClient.
- * RemittanceManager never talks directly to HTTP/WebSockets – it only uses this interface.
- */
-export interface CommsLayer {
-  /**
-   * Sends a message over the store-and-forward channel. Returns the transport messageId.
-   */
-  sendMessage: (args: { recipient: PubKeyHex, messageBox: string, body: string }, hostOverride?: string) => Promise<string>
-
-  /**
-   * Sends a message over the live channel (e.g. WebSocket). Returns the transport messageId.
-   * Implementers may throw if live sending is not possible.
-   * RemittanceManager will fall back to sendMessage where appropriate.
-   */
-  sendLiveMessage?: (args: { recipient: PubKeyHex, messageBox: string, body: string }, hostOverride?: string) => Promise<string>
-
-  /**
-   * Lists pending messages for a message box.
-   */
-  listMessages: (args: { messageBox: string, host?: string }) => Promise<RemittancePeerMessage[]>
-
-  /**
-   * Acknowledges messages (deletes them from the server / inbox).
-   */
-  acknowledgeMessage: (args: { messageIds: string[] }) => Promise<void>
-
-  /**
-   * Optional live listener.
-   */
-  listenForLiveMessages?: (args: {
-    messageBox: string
-    overrideHost?: string
-    onMessage: (msg: RemittancePeerMessage) => void
-  }) => Promise<void>
-}
+export type CommsLayer = SdkCommsLayer
+export type RemittancePeerMessage = SdkRemittancePeerMessage
 
 /**
  * Adapter that implements the CommsLayer interface for MessageBoxClient
@@ -91,7 +46,7 @@ export interface CommsLayer {
  * communications interface. It handles format conversions, particularly ensuring message
  * bodies are properly stringified for the RemittanceManager protocol.
  */
-export class RemittanceAdapter implements CommsLayer {
+export class RemittanceAdapter implements SdkCommsLayer {
   /**
    * Creates a new RemittanceAdapter
    * @param messageBox - The MessageBoxClient instance to adapt
@@ -112,13 +67,14 @@ export class RemittanceAdapter implements CommsLayer {
       recipient: args.recipient,
       messageBox: args.messageBox,
       body: args.body
-    })
+    }, hostOverride)
 
     return result.messageId
   }
 
   /**
-   * Sends a message over the live channel (falls back to regular sendMessage)
+   * Sends a message over the live channel.
+   * MessageBoxClient handles transport fallback internally (WebSocket -> HTTP).
    * @param args - Message parameters (recipient, messageBox, body)
    * @param hostOverride - Optional host override
    * @returns The transport message ID
@@ -127,9 +83,13 @@ export class RemittanceAdapter implements CommsLayer {
     args: { recipient: PubKeyHex, messageBox: string, body: string },
     hostOverride?: string
   ): Promise<string> {
-    // MessageBoxClient doesn't distinguish between live and regular messages
-    // Both go through the same sendMessage mechanism
-    return await this.sendMessage(args, hostOverride)
+    const result = await this.messageBox.sendLiveMessage({
+      recipient: args.recipient,
+      messageBox: args.messageBox,
+      body: args.body
+    }, hostOverride)
+
+    return result.messageId
   }
 
   /**
@@ -142,20 +102,13 @@ export class RemittanceAdapter implements CommsLayer {
    * @returns Array of peer messages with stringified bodies
    */
   async listMessages(args: { messageBox: string, host?: string }): Promise<RemittancePeerMessage[]> {
-    const messages = await this.messageBox.listMessages({ messageBox: args.messageBox })
-
-    return messages.map((msg: any) => {
-      // MessageBoxClient returns body as parsed object, but RemittanceManager expects JSON string
-      const bodyString = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body)
-
-      return {
-        messageId: msg.messageId,
-        sender: msg.sender,
-        recipient: msg.recipient,
-        messageBox: msg.messageBox,
-        body: bodyString
-      }
+    const defaultRecipient = await this.messageBox.getIdentityKey() as PubKeyHex
+    const messages = await this.messageBox.listMessages({
+      messageBox: args.messageBox,
+      host: args.host
     })
+
+    return messages.map(msg => this.toRemittancePeerMessage(msg, args.messageBox, defaultRecipient))
   }
 
   /**
@@ -168,14 +121,44 @@ export class RemittanceAdapter implements CommsLayer {
   }
 
   /**
-   * Live message listening is not currently supported by MessageBoxClient
-   * @throws Error indicating live message listening is not supported
+   * Starts a live listener and normalizes inbound messages to the remittance PeerMessage shape.
    */
   async listenForLiveMessages(args: {
     messageBox: string
     overrideHost?: string
     onMessage: (msg: RemittancePeerMessage) => void
   }): Promise<void> {
-    throw new Error('Live message listening is not currently supported by MessageBoxClient')
+    const defaultRecipient = await this.messageBox.getIdentityKey() as PubKeyHex
+
+    await this.messageBox.listenForLiveMessages({
+      messageBox: args.messageBox,
+      overrideHost: args.overrideHost,
+      onMessage: (msg: MessageBoxPeerMessage) => {
+        args.onMessage(this.toRemittancePeerMessage(msg, args.messageBox, defaultRecipient))
+      }
+    })
+  }
+
+  private toRemittancePeerMessage (
+    msg: MessageBoxPeerMessage & { recipient?: string, messageBox?: string },
+    fallbackMessageBox: string,
+    fallbackRecipient: PubKeyHex
+  ): RemittancePeerMessage {
+    return {
+      messageId: msg.messageId,
+      sender: msg.sender as PubKeyHex,
+      recipient: (msg.recipient ?? fallbackRecipient) as PubKeyHex,
+      messageBox: msg.messageBox ?? fallbackMessageBox,
+      body: this.toBodyString(msg.body)
+    }
+  }
+
+  private toBodyString (body: unknown): string {
+    if (typeof body === 'string') return body
+    try {
+      return JSON.stringify(body)
+    } catch {
+      return String(body)
+    }
   }
 }
