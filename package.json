@@ -1,8 +1,16 @@
 {
   "name": "@bsv/message-box-client",
-  "version": "1.4.5",
+  "version": "2.0.2",
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bsv-blockchain/message-box-client.git"
+  },
+  "homepage": "https://github.com/bsv-blockchain/message-box-client#readme",
+  "bugs": {
+    "url": "https://github.com/bsv-blockchain/message-box-client/issues"
   },
   "description": "A client for P2P messaging and payments",
   "type": "module",
@@ -46,8 +54,8 @@
   "author": "BSV Blockchain Association",
   "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
-    "@bsv/auth-express-middleware": "^1.2.3",
-    "@bsv/payment-express-middleware": "^1.2.3",
+    "@bsv/auth-express-middleware": "^2.0.4",
+    "@bsv/payment-express-middleware": "^2.0.1",
     "@eslint/js": "^9.20.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.2",
@@ -74,7 +82,7 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
-    "@bsv/authsocket-client": "^1.0.12",
-    "@bsv/sdk": "^1.8.8"
+    "@bsv/authsocket-client": "^2.0.2",
+    "@bsv/sdk": "^2.0.4"
   }
 }

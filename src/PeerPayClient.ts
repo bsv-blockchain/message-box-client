@@ -16,7 +16,7 @@ import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, 
 
 import * as Logger from './Utils/logger.js'
 
-function safeParse<T>(input: any): T {
+function safeParse<T> (input: any): T {
   try {
     return typeof input === 'string' ? JSON.parse(input) : input
   } catch (e) {
@@ -80,7 +80,7 @@ export class PeerPayClient extends MessageBoxClient {
   private _authFetchInstance?: AuthFetch
   private readonly messageBox: string
 
-  constructor(config: PeerPayClientConfig) {
+  constructor (config: PeerPayClientConfig) {
     const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
 
     // 🔹 Pass enableLogging to MessageBoxClient
@@ -91,7 +91,7 @@ export class PeerPayClient extends MessageBoxClient {
     this.originator = originator
   }
 
-  private get authFetchInstance(): AuthFetch {
+  private get authFetchInstance (): AuthFetch {
     if (this._authFetchInstance === null || this._authFetchInstance === undefined) {
       this._authFetchInstance = new AuthFetch(this.peerPayWalletClient, undefined, undefined, this.originator)
     }
@@ -110,7 +110,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<PaymentToken>} A valid payment token containing transaction details.
    * @throws {Error} If the recipient's public key cannot be derived.
    */
-  async createPaymentToken(payment: PaymentParams): Promise<PaymentToken> {
+  async createPaymentToken (payment: PaymentParams): Promise<PaymentToken> {
     if (payment.amount <= 0) {
       throw new Error('Invalid payment details: recipient and valid amount are required')
     };
@@ -187,7 +187,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<any>} Resolves with the payment result.
    * @throws {Error} If the recipient is missing or the amount is invalid.
    */
-  async sendPayment(payment: PaymentParams, hostOverride?: string): Promise<any> {
+  async sendPayment (payment: PaymentParams, hostOverride?: string): Promise<any> {
     if (payment.recipient == null || payment.recipient.trim() === '' || payment.amount <= 0) {
       throw new Error('Invalid payment details: recipient and valid amount are required')
     }
@@ -216,7 +216,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<void>} Resolves when the payment has been sent.
    * @throws {Error} If payment token generation fails.
    */
-  async sendLivePayment(payment: PaymentParams, overrideHost?: string): Promise<void> {
+  async sendLivePayment (payment: PaymentParams, overrideHost?: string): Promise<void> {
     const paymentToken = await this.createPaymentToken(payment)
 
     try {
@@ -250,7 +250,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @param {string} [obj.overrideHost] - Optional host override for WebSocket connection.
    * @returns {Promise<void>} Resolves when the listener is successfully set up.
    */
-  async listenForLivePayments({
+  async listenForLivePayments ({
     onPayment,
     overrideHost
   }: {
@@ -286,7 +286,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<any>} Resolves with the payment result if successful.
    * @throws {Error} If payment processing fails.
    */
-  async acceptPayment(payment: IncomingPayment): Promise<any> {
+  async acceptPayment (payment: IncomingPayment): Promise<any> {
     try {
       Logger.log(`[PP CLIENT] Processing payment: ${JSON.stringify(payment, null, 2)}`)
 
@@ -327,7 +327,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @param {IncomingPayment} payment - The payment object containing transaction details.
    * @returns {Promise<void>} Resolves when the payment is either acknowledged or refunded.
    */
-  async rejectPayment(payment: IncomingPayment): Promise<void> {
+  async rejectPayment (payment: IncomingPayment): Promise<void> {
     Logger.log(`[PP CLIENT] Rejecting payment: ${JSON.stringify(payment, null, 2)}`)
 
     if (payment.token.amount - 1000 < 1000) {
@@ -388,7 +388,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @param {string} [overrideHost] - Optional host override to list payments from
    * @returns {Promise<IncomingPayment[]>} Resolves with an array of pending payments.
    */
-  async listIncomingPayments(overrideHost?: string): Promise<IncomingPayment[]> {
+  async listIncomingPayments (overrideHost?: string): Promise<IncomingPayment[]> {
     const messages = await this.listMessages({ messageBox: this.messageBox, host: overrideHost })
     return messages.map((msg: any) => {
       const parsedToken = safeParse<PaymentToken>(msg.body)
