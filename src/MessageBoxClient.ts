@@ -96,6 +96,8 @@ export class MessageBoxClient {
   private readonly lookupResolver: LookupResolver
   private readonly networkPreset: 'local' | 'mainnet' | 'testnet'
   private initialized = false
+  private socketAuthenticated = false
+  private connectionInitPromise?: Promise<void>
   protected originator?: OriginatorDomainNameStringUnder250Bytes
   /**
    * @constructor
@@ -131,7 +133,7 @@ export class MessageBoxClient {
     } = options
 
     const defaultHost =
-      this.networkPreset === 'testnet'
+      networkPreset === 'testnet'
         ? DEFAULT_TESTNET_HOST
         : DEFAULT_MAINNET_HOST
 
@@ -313,6 +315,15 @@ export class MessageBoxClient {
 
     Logger.log('[MB CLIENT] Setting up WebSocket connection...')
 
+    if (this.socketAuthenticated && this.socket != null) {
+      return
+    }
+
+    if (this.connectionInitPromise != null) {
+      await this.connectionInitPromise
+      return
+    }
+
     if (this.socket == null) {
       const targetHost = overrideHost ?? this.host
       if (typeof targetHost !== 'string' || targetHost.trim() === '') {
@@ -320,58 +331,115 @@ export class MessageBoxClient {
       }
       this.socket = AuthSocketClient(targetHost, { wallet: this.walletClient, originator: this.originator })
 
-      let identitySent = false
-      let authenticated = false
-
       this.socket.on('connect', () => {
         Logger.log('[MB CLIENT] Connected to WebSocket.')
 
-        if (!identitySent) {
-          Logger.log('[MB CLIENT] Sending authentication data:', this.myIdentityKey)
-          if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
-            Logger.error('[MB CLIENT ERROR] Cannot send authentication: Identity key is missing!')
-          } else {
-            this.socket?.emit('authenticated', { identityKey: this.myIdentityKey })
-            identitySent = true
-          }
+        Logger.log('[MB CLIENT] Sending authentication data:', this.myIdentityKey)
+        if (this.myIdentityKey == null || this.myIdentityKey.trim() === '') {
+          Logger.error('[MB CLIENT ERROR] Cannot send authentication: Identity key is missing!')
+        } else {
+          this.socket?.emit('authenticated', { identityKey: this.myIdentityKey })
         }
       })
 
       // Listen for authentication success from the server
       this.socket.on('authenticationSuccess', (data) => {
         Logger.log(`[MB CLIENT] WebSocket authentication successful: ${JSON.stringify(data)}`)
-        authenticated = true
+        this.socketAuthenticated = true
       })
 
       // Handle authentication failures
       this.socket.on('authenticationFailed', (data) => {
         Logger.error(`[MB CLIENT ERROR] WebSocket authentication failed: ${JSON.stringify(data)}`)
-        authenticated = false
+        this.socketAuthenticated = false
       })
 
       this.socket.on('disconnect', () => {
         Logger.log('[MB CLIENT] Disconnected from MessageBox server')
         this.socket = undefined
-        identitySent = false
-        authenticated = false
+        this.socketAuthenticated = false
       })
 
       this.socket.on('error', (error) => {
         Logger.error('[MB CLIENT ERROR] WebSocket error:', error)
       })
-
-      // Wait for authentication confirmation before proceeding
-      await new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          if (authenticated) {
-            Logger.log('[MB CLIENT] WebSocket fully authenticated and ready!')
-            resolve()
-          } else {
-            reject(new Error('[MB CLIENT ERROR] WebSocket authentication timed out!'))
-          }
-        }, 5000) // Timeout after 5 seconds
-      })
     }
+
+    if (this.socket?.connected && !this.socketAuthenticated) {
+      this.socket.emit('authenticated', { identityKey: this.myIdentityKey })
+    }
+
+    this.connectionInitPromise = new Promise<void>((resolve, reject) => {
+      const socketAny = this.socket as any
+      let settled = false
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+      const finalizeResolve = (): void => {
+        if (settled) return
+        settled = true
+        if (timeoutId != null) {
+          clearTimeout(timeoutId)
+          timeoutId = undefined
+        }
+        if (typeof socketAny?.off === 'function') {
+          socketAny.off('authenticationSuccess', onSuccess)
+          socketAny.off('authenticationFailed', onFailed)
+          socketAny.off('disconnect', onDisconnectBeforeAuth)
+        }
+        this.connectionInitPromise = undefined
+        Logger.log('[MB CLIENT] WebSocket fully authenticated and ready!')
+        resolve()
+      }
+
+      const finalizeReject = (error: Error): void => {
+        if (settled) return
+        settled = true
+        if (timeoutId != null) {
+          clearTimeout(timeoutId)
+          timeoutId = undefined
+        }
+        if (typeof socketAny?.off === 'function') {
+          socketAny.off('authenticationSuccess', onSuccess)
+          socketAny.off('authenticationFailed', onFailed)
+          socketAny.off('disconnect', onDisconnectBeforeAuth)
+        }
+        this.connectionInitPromise = undefined
+        reject(error)
+      }
+
+      const onSuccess = (): void => {
+        this.socketAuthenticated = true
+        finalizeResolve()
+      }
+
+      const onFailed = (): void => {
+        this.socketAuthenticated = false
+        finalizeReject(new Error('[MB CLIENT ERROR] WebSocket authentication failed!'))
+      }
+
+      const onDisconnectBeforeAuth = (): void => {
+        this.socketAuthenticated = false
+      }
+
+      if (this.socketAuthenticated) {
+        finalizeResolve()
+        return
+      }
+
+      socketAny?.on('authenticationSuccess', onSuccess)
+      socketAny?.on('authenticationFailed', onFailed)
+      socketAny?.on('disconnect', onDisconnectBeforeAuth)
+
+      timeoutId = setTimeout(() => {
+        if (this.socketAuthenticated) {
+          finalizeResolve()
+        } else {
+          finalizeReject(new Error('[MB CLIENT ERROR] WebSocket authentication timed out!'))
+        }
+      }, 5000)
+    })
+
+    await this.connectionInitPromise
   }
 
   /**
@@ -700,10 +768,15 @@ export class MessageBoxClient {
     return await new Promise((resolve, reject) => {
       const ackEvent = `sendMessageAck-${roomId}`
       let handled = false
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
 
       const ackHandler = (response?: SendMessageResponse): void => {
         if (handled) return
         handled = true
+        if (timeoutId != null) {
+          clearTimeout(timeoutId)
+          timeoutId = undefined
+        }
 
         const socketAny = this.socket as any
         if (typeof socketAny?.off === 'function') {
@@ -749,9 +822,10 @@ export class MessageBoxClient {
       })
 
       // Timeout: Fallback to HTTP if no acknowledgment received
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         if (!handled) {
           handled = true
+          timeoutId = undefined
           const socketAny = this.socket as any
           if (typeof socketAny?.off === 'function') {
             socketAny.off(ackEvent, ackHandler)

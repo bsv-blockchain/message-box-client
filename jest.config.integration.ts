@@ -4,6 +4,7 @@ const config: JestConfigWithTsJest = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
   transform: {
     '^.+\\.ts?$': ['ts-jest', { isolatedModules: true }]
   },
@@ -13,11 +14,6 @@ const config: JestConfigWithTsJest = {
   },
   testMatch: ['**/src/__tests/integration/**/*.test.ts'], // Only run integration tests
   verbose: true,
-  globals: {
-    'ts-jest': {
-      isolatedModules: true
-    }
-  },
   testTimeout: 30000
 }
 

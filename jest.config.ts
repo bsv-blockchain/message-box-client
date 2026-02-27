@@ -15,11 +15,9 @@ const config: JestConfigWithTsJest = {
     './src/__tests/integration/'
   ],
 
-  // These globals configure ts-jest to output ESM
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
+  // Keep ts-jest options in transform to avoid deprecated globals config
+  transform: {
+    '^.+\\.ts$': ['ts-jest', { useESM: true, isolatedModules: true }]
   },
 
   // Tell Jest that files ending in .ts should be treated as ESM modules
