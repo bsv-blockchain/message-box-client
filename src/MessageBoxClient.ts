@@ -521,7 +521,29 @@ export class MessageBoxClient {
     } catch (err) {
       Logger.error('[MB CLIENT ERROR] _queryAdvertisements failed:', err)
     }
-    return hosts.filter(item => item.host !== 'https://messagebox.example.com')
+    return hosts.filter(item => {
+      const h = item.host.trim().toLowerCase()
+      if (!h) return false
+      try {
+        const url = new URL(h)
+        if (url.protocol !== 'https:') return false
+        const hostname = url.hostname
+        if (
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '0.0.0.0' ||
+          hostname === '::1' ||
+          hostname.endsWith('.local') ||
+          hostname.endsWith('.example.com') ||
+          hostname.endsWith('.test') ||
+          hostname.endsWith('.invalid') ||
+          hostname.endsWith('.localhost')
+        ) return false
+        return true
+      } catch {
+        return false
+      }
+    })
   }
 
   /**
@@ -1137,14 +1159,14 @@ export class MessageBoxClient {
       throw new Error('Missing delivery agent identity keys in quote response.')
     }
     if (Object.keys(deliveryAgentIdentityKeyByHost).length > 1 && !overrideHost) {
-    // To keep the single-POST invariant, we require all recipients to share a host
+      // To keep the single-POST invariant, we require all recipients to share a host
       throw new Error('Recipients resolve to multiple hosts. Use overrideHost to force a single server or split by host.')
     }
 
     // pick the host to POST to
     const finalHost = (overrideHost ?? await this.resolveHostForRecipient(allowedRecipients[0])).replace(/\/+$/, '')
     const singleDeliveryKey = deliveryAgentIdentityKeyByHost[finalHost] ??
-    Object.values(deliveryAgentIdentityKeyByHost)[0]
+      Object.values(deliveryAgentIdentityKeyByHost)[0]
 
     if (!singleDeliveryKey) {
       throw new Error('Could not determine server delivery agent identity key.')
@@ -1174,7 +1196,7 @@ export class MessageBoxClient {
     if (skipEncryption === true) {
       finalBody = typeof body === 'string' ? body : JSON.stringify(body)
     } else {
-    // safest for now: send plaintext; the recipients can decrypt payload fields client-side if needed
+      // safest for now: send plaintext; the recipients can decrypt payload fields client-side if needed
       finalBody = typeof body === 'string' ? body : JSON.stringify(body)
     }
 
@@ -1217,18 +1239,18 @@ export class MessageBoxClient {
       const failed: Array<{ recipient: string, error: string }> = [] // handled server-side now
 
       const status: SendListResult['status'] =
-      sent.length === allowedRecipients.length
-        ? 'success'
-        : sent.length > 0
-          ? 'partial'
-          : 'error'
+        sent.length === allowedRecipients.length
+          ? 'success'
+          : sent.length > 0
+            ? 'partial'
+            : 'error'
 
       const description =
-      status === 'success'
-        ? `Sent to ${sent.length} recipients.`
-        : status === 'partial'
-          ? `Sent to ${sent.length} recipients; ${allowedRecipients.length - sent.length} failed; ${blocked.length} blocked.`
-          : `Failed to send to ${allowedRecipients.length} allowed recipients. ${blocked.length} blocked.`
+        status === 'success'
+          ? `Sent to ${sent.length} recipients.`
+          : status === 'partial'
+            ? `Sent to ${sent.length} recipients; ${allowedRecipients.length - sent.length} failed; ${blocked.length} blocked.`
+            : `Failed to send to ${allowedRecipients.length} allowed recipients. ${blocked.length} blocked.`
 
       return { status, description, sent, blocked, failed, totals }
     } catch (err) {
@@ -1755,7 +1777,7 @@ export class MessageBoxClient {
     }
   }
 
-  private async mapWithConcurrency<T, R> (
+  private async mapWithConcurrency<T, R>(
     items: T[],
     limit: number,
     fn: (item: T, index: number) => Promise<R>
@@ -2071,7 +2093,7 @@ export class MessageBoxClient {
     params: GetQuoteParams,
     overrideHost?: string
   ): Promise<MessageBoxQuote | MessageBoxMultiQuote> {
-  // ---------- SINGLE RECIPIENT (back-compat) ----------
+    // ---------- SINGLE RECIPIENT (back-compat) ----------
     if (!Array.isArray(params.recipient)) {
       const finalHost = overrideHost ?? await this.resolveHostForRecipient(params.recipient)
       const queryParams = new URLSearchParams({
@@ -2082,14 +2104,14 @@ export class MessageBoxClient {
       Logger.log('[MB CLIENT] Getting messageBox quote (single)...')
       console.log('HELP IM QUOTING', `${finalHost}/permissions/quote?${queryParams.toString()}`)
       const response = await this.authFetch.fetch(
-      `${finalHost}/permissions/quote?${queryParams.toString()}`,
-      { method: 'GET' }
+        `${finalHost}/permissions/quote?${queryParams.toString()}`,
+        { method: 'GET' }
       )
       console.log('server response from getquote]', response)
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(
-        `Failed to get quote: HTTP ${response.status} - ${String(errorData.description) ?? response.statusText}`
+          `Failed to get quote: HTTP ${response.status} - ${String(errorData.description) ?? response.statusText}`
         )
       }
 
@@ -2162,7 +2184,7 @@ export class MessageBoxClient {
       if (!resp.ok) {
         const errorData = await resp.json().catch(() => ({}))
         throw new Error(
-        `Failed to get quote (host ${host}): HTTP ${resp.status} - ${String(errorData.description) ?? resp.statusText}`
+          `Failed to get quote (host ${host}): HTTP ${resp.status} - ${String(errorData.description) ?? resp.statusText}`
         )
       }
 
@@ -2177,7 +2199,7 @@ export class MessageBoxClient {
       // Server supports both shapes. For multi we expect:
       //  { quotesByRecipient, totals, blockedRecipients }
       if (Array.isArray(payload?.quotesByRecipient)) {
-      // merge quotes
+        // merge quotes
         for (const q of payload.quotesByRecipient) {
           quotesByRecipient.push({
             recipient: q.recipient,
@@ -2203,12 +2225,12 @@ export class MessageBoxClient {
           }
         }
       } else if (payload?.quote) {
-      // Defensive: if an overlay still returns single-quote shape for multi (shouldn’t),
-      // we map it to each recipient in the group uniformly.
+        // Defensive: if an overlay still returns single-quote shape for multi (shouldn’t),
+        // we map it to each recipient in the group uniformly.
         for (const r of groupRecipients) {
           const { deliveryFee, recipientFee } = payload.quote
           const status =
-          recipientFee === -1 ? 'blocked' : recipientFee === 0 ? 'always_allow' : 'payment_required'
+            recipientFee === -1 ? 'blocked' : recipientFee === 0 ? 'always_allow' : 'payment_required'
           quotesByRecipient.push({
             recipient: r,
             messageBox: params.messageBox,
