@@ -12,9 +12,13 @@
 
 import { MessageBoxClient } from './MessageBoxClient.js'
 import { PeerMessage } from './types.js'
-import { WalletInterface, P2PKH, PublicKey, createNonce, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes } from '@bsv/sdk'
+import { WalletInterface, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes, Brc29RemittanceModule } from '@bsv/sdk'
 
 import * as Logger from './Utils/logger.js'
+
+function toNumberArray (tx: AtomicBEEF): number[] {
+  return Array.isArray(tx) ? tx : Array.from(tx)
+}
 
 function safeParse<T> (input: any): T {
   try {
@@ -79,6 +83,7 @@ export class PeerPayClient extends MessageBoxClient {
   private readonly peerPayWalletClient: WalletInterface
   private _authFetchInstance?: AuthFetch
   private readonly messageBox: string
+  private readonly settlementModule: Brc29RemittanceModule
 
   constructor (config: PeerPayClientConfig) {
     const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
@@ -89,6 +94,16 @@ export class PeerPayClient extends MessageBoxClient {
     this.messageBox = config.messageBox ?? STANDARD_PAYMENT_MESSAGEBOX
     this.peerPayWalletClient = walletClient
     this.originator = originator
+
+    this.settlementModule = new Brc29RemittanceModule({
+      protocolID: [2, '3241645161d8'],
+      labels: ['peerpay'],
+      description: 'PeerPay payment',
+      outputDescription: 'Payment for PeerPay transaction',
+      internalizeProtocol: 'wallet payment',
+      refundFeeSatoshis: 1000,
+      minRefundSatoshis: 1000
+    })
   }
 
   private get authFetchInstance (): AuthFetch {
@@ -115,62 +130,40 @@ export class PeerPayClient extends MessageBoxClient {
       throw new Error('Invalid payment details: recipient and valid amount are required')
     };
 
-    // Generate derivation paths using correct nonce function
-    const derivationPrefix = await createNonce(this.peerPayWalletClient, 'self', this.originator)
-    const derivationSuffix = await createNonce(this.peerPayWalletClient, 'self', this.originator)
-
-    Logger.log(`[PP CLIENT] Derivation Prefix: ${derivationPrefix}`)
-    Logger.log(`[PP CLIENT] Derivation Suffix: ${derivationSuffix}`)
-    // Get recipient's derived public key
-    const { publicKey: derivedKeyResult } = await this.peerPayWalletClient.getPublicKey({
-      protocolID: [2, '3241645161d8'],
-      keyID: `${derivationPrefix} ${derivationSuffix}`,
-      counterparty: payment.recipient
-    }, this.originator)
-
-    Logger.log(`[PP CLIENT] Derived Public Key: ${derivedKeyResult}`)
-
-    if (derivedKeyResult == null || derivedKeyResult.trim() === '') {
-      throw new Error('Failed to derive recipient’s public key')
-    }
-
-    // Create locking script using recipient's public key
-    const lockingScript = new P2PKH().lock(PublicKey.fromString(derivedKeyResult).toAddress()).toHex()
-
-    Logger.log(`[PP CLIENT] Locking Script: ${lockingScript}`)
-
-    // Create the payment action
-    const paymentAction = await this.peerPayWalletClient.createAction({
-      description: 'PeerPay payment',
-      labels: ['peerpay'],
-      outputs: [{
-        satoshis: payment.amount,
-        lockingScript,
-        customInstructions: JSON.stringify({
-          derivationPrefix,
-          derivationSuffix,
-          payee: payment.recipient
-        }),
-        outputDescription: 'Payment for PeerPay transaction'
-      }],
-      options: {
-        randomizeOutputs: false
+    const result = await this.settlementModule.buildSettlement(
+      {
+        threadId: 'peerpay',
+        option: {
+          amountSatoshis: payment.amount,
+          payee: payment.recipient,
+          labels: ['peerpay'],
+          description: 'PeerPay payment'
+        }
+      },
+      {
+        wallet: this.peerPayWalletClient,
+        originator: this.originator,
+        now: () => Date.now(),
+        logger: Logger
       }
-    }, this.originator)
+    )
 
-    if (paymentAction.tx === undefined) {
-      throw new Error('Transaction creation failed!')
+    if (result.action === 'terminate') {
+      if (result.termination.code === 'brc29.public_key_missing') {
+        throw new Error('Failed to derive recipient’s public key')
+      }
+      throw new Error(result.termination.message)
     }
 
-    Logger.log('[PP CLIENT] Payment Action:', paymentAction)
+    Logger.log('[PP CLIENT] Payment Action Settlement Artifact:', result.artifact)
 
     return {
       customInstructions: {
-        derivationPrefix,
-        derivationSuffix
+        derivationPrefix: result.artifact.customInstructions.derivationPrefix as Base64String,
+        derivationSuffix: result.artifact.customInstructions.derivationSuffix as Base64String
       },
-      transaction: paymentAction.tx,
-      amount: payment.amount
+      transaction: result.artifact.transaction as AtomicBEEF,
+      amount: result.artifact.amountSatoshis
     }
   }
 
@@ -290,20 +283,33 @@ export class PeerPayClient extends MessageBoxClient {
     try {
       Logger.log(`[PP CLIENT] Processing payment: ${JSON.stringify(payment, null, 2)}`)
 
-      const paymentResult = await this.peerPayWalletClient.internalizeAction({
-        tx: payment.token.transaction,
-        outputs: [{
-          paymentRemittance: {
-            derivationPrefix: payment.token.customInstructions.derivationPrefix,
-            derivationSuffix: payment.token.customInstructions.derivationSuffix,
-            senderIdentityKey: payment.sender
-          },
-          outputIndex: payment.token.outputIndex ?? STANDARD_PAYMENT_OUTPUT_INDEX,
-          protocol: 'wallet payment'
-        }],
-        labels: ['peerpay'],
-        description: 'PeerPay Payment'
-      }, this.originator)
+      const acceptResult = await this.settlementModule.acceptSettlement(
+        {
+          threadId: 'peerpay',
+          sender: payment.sender,
+          settlement: {
+            customInstructions: {
+              derivationPrefix: payment.token.customInstructions.derivationPrefix,
+              derivationSuffix: payment.token.customInstructions.derivationSuffix
+            },
+            transaction: toNumberArray(payment.token.transaction),
+            amountSatoshis: payment.token.amount,
+            outputIndex: payment.token.outputIndex ?? STANDARD_PAYMENT_OUTPUT_INDEX
+          }
+        },
+        {
+          wallet: this.peerPayWalletClient,
+          originator: this.originator,
+          now: () => Date.now(),
+          logger: Logger
+        }
+      )
+
+      if (acceptResult.action === 'terminate') {
+        throw new Error(acceptResult.termination.message)
+      }
+
+      const paymentResult = acceptResult.receiptData?.internalizeResult
 
       Logger.log(`[PP CLIENT] Payment internalized successfully: ${JSON.stringify(paymentResult, null, 2)}`)
       Logger.log(`[PP CLIENT] Acknowledging payment with messageId: ${payment.messageId}`)
