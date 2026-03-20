@@ -1298,6 +1298,19 @@ export class MessageBoxClient {
 
       const identityKey = await this.getIdentityKey()
 
+      // Revoke any existing advertisements so stale entries don't accumulate
+      const existingTokens = await this.queryAdvertisements(identityKey)
+      for (const token of existingTokens) {
+        try {
+          await this.revokeHostAdvertisement(token)
+          Logger.log(`[MB CLIENT] Revoked existing advertisement for ${token.host}`)
+        } catch (revokeErr) {
+          // Token may already be spent (e.g. a previous switch attempt partially succeeded).
+          // Skip it and continue so a single bad UTXO doesn't block the new anointment.
+          Logger.warn(`[MB CLIENT] Skipped already-spent or invalid advertisement token for ${token.host}:`, revokeErr)
+        }
+      }
+
       Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
 
       const fields: number[][] = [
