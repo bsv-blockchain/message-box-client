@@ -38,7 +38,8 @@ import {
   ProtoWallet,
   InternalizeOutput,
   Random,
-  OriginatorDomainNameStringUnder250Bytes
+  OriginatorDomainNameStringUnder250Bytes,
+  Beef
 
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
@@ -1298,34 +1299,16 @@ export class MessageBoxClient {
 
       const identityKey = await this.getIdentityKey()
 
-      // Revoke any existing advertisements so stale entries don't accumulate.
+      // Query existing advertisements to revoke them in the same transaction as the new one.
       const existingTokens = await this.queryAdvertisements(identityKey)
-      for (const token of existingTokens) {
-        try {
-          await this.revokeHostAdvertisement(token)
-          Logger.log(`[MB CLIENT] Revoked existing advertisement for ${token.host}`)
-        } catch (revokeErr) {
-          // Leave the token in the basket so the next anointHost call can retry revocation.
-          // Relinquishing would orphan the overlay entry permanently (no revocation tx ever
-          // broadcast → outputSpent never fires → stale DB record).
-          Logger.warn(`[MB CLIENT] Could not revoke token for ${token.host}, will retry on next anointHost:`, revokeErr)
-        }
-      }
+      Logger.log(`[MB CLIENT] Found ${existingTokens.length} existing advertisement(s) to revoke`)
 
-      Logger.log('[MB CLIENT] Fields - Identity:', identityKey, 'Host:', host)
-
+      // Build the new advertisement locking script.
       const fields: number[][] = [
         Utils.toArray(identityKey, 'hex'),
         Utils.toArray(host, 'utf8')
       ]
-
       const pushdrop = new PushDrop(this.walletClient, this.originator)
-      Logger.log('Fields:', fields.map(a => Utils.toHex(a)))
-      Logger.log('ProtocolID:', [1, 'messagebox advertisement'])
-      Logger.log('KeyID:', '1')
-      Logger.log('SignAs:', 'self')
-      Logger.log('anyoneCanSpend:', false)
-      Logger.log('forSelf:', true)
       const script = await pushdrop.lock(
         fields,
         [1, 'messagebox advertisement'],
@@ -1333,38 +1316,85 @@ export class MessageBoxClient {
         'anyone',
         true
       )
-
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
 
-      const { tx, txid } = await this.walletClient.createAction({
+      // Build a merged BEEF containing source transactions for all tokens being revoked.
+      let inputBEEF: number[] | undefined
+      if (existingTokens.length > 0) {
+        const mergedBeef = Beef.fromBinary(existingTokens[0].beef)
+        for (let i = 1; i < existingTokens.length; i++) {
+          mergedBeef.mergeBeef(Beef.fromBinary(existingTokens[i].beef))
+        }
+        inputBEEF = mergedBeef.toBinary()
+      }
+
+      // Single createAction: spend all existing tokens as inputs, create new advertisement as output.
+      const { signableTransaction, tx: directTx, txid: directTxid } = await this.walletClient.createAction({
         description: 'Anoint host for overlay routing',
+        ...(inputBEEF !== undefined && {
+          inputBEEF,
+          inputs: existingTokens.map(token => ({
+            outpoint: `${token.txid}.${token.outputIndex}`,
+            unlockingScriptLength: 73,
+            inputDescription: `Revoking advertisement for ${token.host}`
+          }))
+        }),
         outputs: [{
           basket: 'overlay advertisements',
           lockingScript: script.toHex(),
           satoshis: 1,
           outputDescription: 'Overlay advertisement output'
         }],
-        options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
+        options: { randomizeOutputs: false, acceptDelayedBroadcast: true }
       }, this.originator)
 
-      Logger.log('[MB CLIENT] Transaction created:', txid)
-
-      if (tx !== undefined) {
-        const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
-          networkPreset: this.networkPreset
-        })
-
-        const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
+      // If the wallet returned the tx directly (no inputs to sign), broadcast immediately.
+      if (signableTransaction === undefined) {
+        if (directTx === undefined) throw new Error('Anoint failed: no transaction returned')
+        Logger.log('[MB CLIENT] Transaction created (no inputs to sign):', directTxid)
+        const broadcaster = new TopicBroadcaster(['tm_messagebox'], { networkPreset: this.networkPreset })
+        const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(directTx))
         Logger.log('[MB CLIENT] Advertisement broadcast succeeded. TXID:', result.txid)
-
-        if (typeof result.txid !== 'string') {
-          throw new Error('Anoint failed: broadcast did not return a txid')
-        }
-
+        if (typeof result.txid !== 'string') throw new Error('Anoint failed: broadcast did not return a txid')
         return { txid: result.txid }
       }
 
-      throw new Error('Anoint failed: failed to create action!')
+      // Sign each revocation input at its correct index in the spending transaction.
+      const partialTx = Transaction.fromAtomicBEEF(signableTransaction.tx)
+      const spends: Record<number, { unlockingScript: string }> = {}
+
+      for (let i = 0; i < existingTokens.length; i++) {
+        const token = existingTokens[i]
+        const sourceTx = Transaction.fromBEEF(token.beef)
+        const sourceSatoshis = sourceTx.outputs[token.outputIndex]?.satoshis ?? 1
+        const unlocker = pushdrop.unlock(
+          [1, 'messagebox advertisement'],
+          '1',
+          'anyone',
+          'all',
+          false,
+          sourceSatoshis,
+          token.lockingScript
+        )
+        const finalUnlockScript = await unlocker.sign(partialTx, i)
+        spends[i] = { unlockingScript: finalUnlockScript.toHex() }
+      }
+
+      const { tx: signedTx, txid: signedTxid } = await this.walletClient.signAction({
+        reference: signableTransaction.reference,
+        spends,
+        options: { acceptDelayedBroadcast: true }
+      }, this.originator)
+
+      if (signedTx === undefined) throw new Error('Anoint failed: signing did not return a transaction')
+      Logger.log('[MB CLIENT] Transaction created:', signedTxid)
+
+      const broadcaster = new TopicBroadcaster(['tm_messagebox'], { networkPreset: this.networkPreset })
+      const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(signedTx))
+      Logger.log('[MB CLIENT] Advertisement broadcast succeeded. TXID:', result.txid)
+
+      if (typeof result.txid !== 'string') throw new Error('Anoint failed: broadcast did not return a txid')
+      return { txid: result.txid }
     } catch (err) {
       Logger.error('[MB CLIENT ERROR] anointHost threw:', err)
       throw err
