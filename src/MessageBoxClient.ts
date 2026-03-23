@@ -1298,16 +1298,17 @@ export class MessageBoxClient {
 
       const identityKey = await this.getIdentityKey()
 
-      // Revoke any existing advertisements so stale entries don't accumulate
+      // Revoke any existing advertisements so stale entries don't accumulate.
       const existingTokens = await this.queryAdvertisements(identityKey)
       for (const token of existingTokens) {
         try {
           await this.revokeHostAdvertisement(token)
           Logger.log(`[MB CLIENT] Revoked existing advertisement for ${token.host}`)
         } catch (revokeErr) {
-          // Token may already be spent (e.g. a previous switch attempt partially succeeded).
-          // Skip it and continue so a single bad UTXO doesn't block the new anointment.
-          Logger.warn(`[MB CLIENT] Skipped already-spent or invalid advertisement token for ${token.host}:`, revokeErr)
+          // Leave the token in the basket so the next anointHost call can retry revocation.
+          // Relinquishing would orphan the overlay entry permanently (no revocation tx ever
+          // broadcast → outputSpent never fires → stale DB record).
+          Logger.warn(`[MB CLIENT] Could not revoke token for ${token.host}, will retry on next anointHost:`, revokeErr)
         }
       }
 
@@ -1335,14 +1336,7 @@ export class MessageBoxClient {
 
       Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
 
-      const previousAdvertisements = await this.queryAdvertisements(identityKey)
-      const previousAdvertisementInputs = previousAdvertisements.map(advertisement => ({
-        outpoint: `${advertisement.txid}.${advertisement.outputIndex}`,
-        unlockingScriptLength: 73,
-        inputDescription: 'Previous MessageBox host advertisement output'
-      }))
-
-      const createActionArgs: Parameters<WalletInterface['createAction']>[0] = {
+      const { tx, txid } = await this.walletClient.createAction({
         description: 'Anoint host for overlay routing',
         outputs: [{
           basket: 'overlay advertisements',
@@ -1351,53 +1345,16 @@ export class MessageBoxClient {
           outputDescription: 'Overlay advertisement output'
         }],
         options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
-      }
-
-      if (previousAdvertisementInputs.length > 0) {
-        createActionArgs.inputs = previousAdvertisementInputs
-      }
-
-      const { tx, txid, signableTransaction } = await this.walletClient.createAction(createActionArgs, this.originator)
+      }, this.originator)
 
       Logger.log('[MB CLIENT] Transaction created:', txid)
 
-      let txToBroadcast = tx
-
-      if (txToBroadcast === undefined && signableTransaction !== undefined) {
-        const partialTx = Transaction.fromAtomicBEEF(signableTransaction.tx)
-        const spends: Record<number, { unlockingScript: string }> = {}
-
-        for (let i = 0; i < previousAdvertisements.length; i++) {
-          const unlocker = await pushdrop.unlock(
-            [1, 'messagebox advertisement'],
-            '1',
-            'anyone',
-            'all',
-            false,
-            previousAdvertisements[i].outputIndex,
-            previousAdvertisements[i].lockingScript
-          )
-          const unlockScript = await unlocker.sign(partialTx, i)
-          spends[i] = { unlockingScript: unlockScript.toHex() }
-        }
-
-        const { tx: signedTx } = await this.walletClient.signAction({
-          reference: signableTransaction.reference,
-          spends,
-          options: {
-            acceptDelayedBroadcast: false
-          }
-        }, this.originator)
-
-        txToBroadcast = signedTx
-      }
-
-      if (txToBroadcast !== undefined) {
+      if (tx !== undefined) {
         const broadcaster = new TopicBroadcaster(['tm_messagebox'], {
           networkPreset: this.networkPreset
         })
 
-        const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(txToBroadcast))
+        const result = await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
         Logger.log('[MB CLIENT] Advertisement broadcast succeeded. TXID:', result.txid)
 
         if (typeof result.txid !== 'string') {
@@ -1448,33 +1405,40 @@ export class MessageBoxClient {
         throw new Error('Failed to create signable transaction.')
       }
 
-      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
+      const partialTx = Transaction.fromAtomicBEEF(signableTransaction.tx)
+
+      // Get the source satoshis from the BEEF so the sighash preimage is correct
+      const sourceTx = Transaction.fromBEEF(advertisementToken.beef)
+      const sourceSatoshis = sourceTx.outputs[advertisementToken.outputIndex]?.satoshis ?? 1
 
       // Prepare the unlocker
       const pushdrop = new PushDrop(this.walletClient, this.originator)
-      const unlocker = await pushdrop.unlock(
+      const unlocker = pushdrop.unlock(
         [1, 'messagebox advertisement'],
         '1',
         'anyone',
         'all',
         false,
-        advertisementToken.outputIndex,
+        sourceSatoshis,
         advertisementToken.lockingScript
       )
 
       // Convert to Transaction, apply signature
-      const finalUnlockScript = await unlocker.sign(partialTx, advertisementToken.outputIndex)
+      const finalUnlockScript = await unlocker.sign(partialTx, 0)
 
       // Complete signing with the final unlock script
+      // Use acceptDelayedBroadcast: true so the wallet does not rate-limit rapid
+      // sequential revocations (WERR_REVIEW_ACTIONS). The wallet still returns tx
+      // so we can broadcast to the overlay ourselves.
       const { tx: signedTx } = await this.walletClient.signAction({
         reference: signableTransaction.reference,
         spends: {
-          [advertisementToken.outputIndex]: {
+          0: {
             unlockingScript: finalUnlockScript.toHex()
           }
         },
         options: {
-          acceptDelayedBroadcast: false
+          acceptDelayedBroadcast: true
         }
       }, this.originator)
 
