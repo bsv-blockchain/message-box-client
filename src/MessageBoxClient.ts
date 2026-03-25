@@ -39,8 +39,7 @@ import {
   InternalizeOutput,
   Random,
   OriginatorDomainNameStringUnder250Bytes,
-  Beef
-
+  Beef,
 } from '@bsv/sdk'
 import { AuthSocketClient } from '@bsv/authsocket-client'
 import * as Logger from './Utils/logger.js'
@@ -1292,48 +1291,58 @@ export class MessageBoxClient {
    */
   async anointHost(host: string): Promise<{ txid: string }> {
     Logger.log('[MB CLIENT] Starting anointHost...')
+    if (!host.startsWith('http')) throw new Error('Invalid host URL')
+
+    const identityKey = await this.getIdentityKey()
+    const overlayTokens = await this.queryAdvertisements(identityKey)
+    Logger.log(`[MB CLIENT] Found ${overlayTokens.length} existing advertisement(s) on overlay`)
+
+    // Fetch ALL spendable wallet basket outputs and cross-reference with overlay tokens.
+    // Only overlay tokens the wallet considers spendable are safe to spend as inputs.
+    // This prevents stale overlay tokens (spent externally) from breaking the combined tx.
+    const basketResult = await this.walletClient.listOutputs({
+      basket: 'overlay advertisements',
+      limit: 10000
+    }, this.originator)
+    const spendableOutpoints = new Set(
+      basketResult.outputs.filter(o => o.spendable).map(o => o.outpoint)
+    )
+    const tokensToSpend = overlayTokens.filter(t => spendableOutpoints.has(`${t.txid}.${t.outputIndex}`))
+    const skipped = overlayTokens.length - tokensToSpend.length
+    if (skipped > 0) {
+      Logger.log(`[MB CLIENT] Skipping ${skipped} overlay token(s) not in spendable wallet basket`)
+    }
+    Logger.log(`[MB CLIENT] Revoking ${tokensToSpend.length} spendable token(s) in combined tx`)
+
+    const fields: number[][] = [
+      Utils.toArray(identityKey, 'hex'),
+      Utils.toArray(host, 'utf8')
+    ]
+    const pushdrop = new PushDrop(this.walletClient, this.originator)
+    const script = await pushdrop.lock(
+      fields,
+      [1, 'messagebox advertisement'],
+      '1',
+      'anyone',
+      true
+    )
+    Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
+
     try {
-      if (!host.startsWith('http')) {
-        throw new Error('Invalid host URL')
-      }
-
-      const identityKey = await this.getIdentityKey()
-
-      // Query existing advertisements to revoke them in the same transaction as the new one.
-      const existingTokens = await this.queryAdvertisements(identityKey)
-      Logger.log(`[MB CLIENT] Found ${existingTokens.length} existing advertisement(s) to revoke`)
-
-      // Build the new advertisement locking script.
-      const fields: number[][] = [
-        Utils.toArray(identityKey, 'hex'),
-        Utils.toArray(host, 'utf8')
-      ]
-      const pushdrop = new PushDrop(this.walletClient, this.originator)
-      const script = await pushdrop.lock(
-        fields,
-        [1, 'messagebox advertisement'],
-        '1',
-        'anyone',
-        true
-      )
-      Logger.log('[MB CLIENT] PushDrop script:', script.toASM())
-
-      // Build a merged BEEF containing source transactions for all tokens being revoked.
       let inputBEEF: number[] | undefined
-      if (existingTokens.length > 0) {
-        const mergedBeef = Beef.fromBinary(existingTokens[0].beef)
-        for (let i = 1; i < existingTokens.length; i++) {
-          mergedBeef.mergeBeef(Beef.fromBinary(existingTokens[i].beef))
+      if (tokensToSpend.length > 0) {
+        const mergedBeef = Beef.fromBinary(tokensToSpend[0].beef)
+        for (let i = 1; i < tokensToSpend.length; i++) {
+          mergedBeef.mergeBeef(Beef.fromBinary(tokensToSpend[i].beef))
         }
         inputBEEF = mergedBeef.toBinary()
       }
 
-      // Single createAction: spend all existing tokens as inputs, create new advertisement as output.
       const { signableTransaction, tx: directTx, txid: directTxid } = await this.walletClient.createAction({
         description: 'Anoint host for overlay routing',
         ...(inputBEEF !== undefined && {
           inputBEEF,
-          inputs: existingTokens.map(token => ({
+          inputs: tokensToSpend.map(token => ({
             outpoint: `${token.txid}.${token.outputIndex}`,
             unlockingScriptLength: 73,
             inputDescription: `Revoking advertisement for ${token.host}`
@@ -1345,10 +1354,9 @@ export class MessageBoxClient {
           satoshis: 1,
           outputDescription: 'Overlay advertisement output'
         }],
-        options: { randomizeOutputs: false, acceptDelayedBroadcast: true }
+        options: { randomizeOutputs: false, acceptDelayedBroadcast: false }
       }, this.originator)
 
-      // If the wallet returned the tx directly (no inputs to sign), broadcast immediately.
       if (signableTransaction === undefined) {
         if (directTx === undefined) throw new Error('Anoint failed: no transaction returned')
         Logger.log('[MB CLIENT] Transaction created (no inputs to sign):', directTxid)
@@ -1359,12 +1367,11 @@ export class MessageBoxClient {
         return { txid: result.txid }
       }
 
-      // Sign each revocation input at its correct index in the spending transaction.
       const partialTx = Transaction.fromAtomicBEEF(signableTransaction.tx)
       const spends: Record<number, { unlockingScript: string }> = {}
 
-      for (let i = 0; i < existingTokens.length; i++) {
-        const token = existingTokens[i]
+      for (let i = 0; i < tokensToSpend.length; i++) {
+        const token = tokensToSpend[i]
         const sourceTx = Transaction.fromBEEF(token.beef)
         const sourceSatoshis = sourceTx.outputs[token.outputIndex]?.satoshis ?? 1
         const unlocker = pushdrop.unlock(
@@ -1383,7 +1390,7 @@ export class MessageBoxClient {
       const { tx: signedTx, txid: signedTxid } = await this.walletClient.signAction({
         reference: signableTransaction.reference,
         spends,
-        options: { acceptDelayedBroadcast: true }
+        options: { acceptDelayedBroadcast: false }
       }, this.originator)
 
       if (signedTx === undefined) throw new Error('Anoint failed: signing did not return a transaction')
@@ -1457,9 +1464,6 @@ export class MessageBoxClient {
       const finalUnlockScript = await unlocker.sign(partialTx, 0)
 
       // Complete signing with the final unlock script
-      // Use acceptDelayedBroadcast: true so the wallet does not rate-limit rapid
-      // sequential revocations (WERR_REVIEW_ACTIONS). The wallet still returns tx
-      // so we can broadcast to the overlay ourselves.
       const { tx: signedTx } = await this.walletClient.signAction({
         reference: signableTransaction.reference,
         spends: {
@@ -1468,7 +1472,7 @@ export class MessageBoxClient {
           }
         },
         options: {
-          acceptDelayedBroadcast: true
+          acceptDelayedBroadcast: false
         }
       }, this.originator)
 
