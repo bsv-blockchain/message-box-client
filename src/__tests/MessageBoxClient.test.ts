@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import { MessageBoxClient } from '../MessageBoxClient.js'
-import { WalletClient, AuthFetch, Transaction, LockingScript } from '@bsv/sdk'
+import { WalletClient, AuthFetch, Transaction, LockingScript, PushDrop, TopicBroadcaster, Beef } from '@bsv/sdk'
 
 // MOCK: WalletClient methods globally
 jest.spyOn(WalletClient.prototype, 'createHmac').mockResolvedValue({
@@ -168,11 +168,11 @@ describe('MessageBoxClient', () => {
     // Bypass the real connection logic
     jest.spyOn(messageBoxClient, 'initializeConnection').mockImplementation(async () => { })
 
-    // Manually set identity key
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      // Manually set identity key
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
-    // Simulate WebSocket not initialized
-    ; (messageBoxClient as any).socket = null
+      // Simulate WebSocket not initialized
+      ; (messageBoxClient as any).socket = null
 
     // Expect it to fall back to HTTP and succeed
     const result = await messageBoxClient.sendLiveMessage({
@@ -282,7 +282,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => ({
         status: 'success',
@@ -309,7 +309,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_LIST_AND_READ_RESULT.body),
@@ -330,7 +330,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch').mockResolvedValue({
       json: async () => JSON.parse(VALID_ACK_RESULT.body),
@@ -352,7 +352,7 @@ describe('MessageBoxClient', () => {
     })
     await messageBoxClient.init()
 
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -425,7 +425,7 @@ describe('MessageBoxClient', () => {
       enableLogging: true
     })
     await messageBoxClient.init()
-    ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+      ; (messageBoxClient as any).myIdentityKey = '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
 
     jest.spyOn(messageBoxClient.authFetch, 'fetch')
       .mockResolvedValue({
@@ -715,10 +715,10 @@ describe('MessageBoxClient', () => {
     })
     await client.init()
 
-    // For this ONE call return two adverts – the first is selected
-    ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce([
-        { host: 'https://peer.box' }, { host: 'https://second.box' }])
+      // For this ONE call return two adverts – the first is selected
+      ; (MessageBoxClient.prototype as any).queryAdvertisements
+        .mockResolvedValueOnce([
+          { host: 'https://peer.box' }, { host: 'https://second.box' }])
 
     const result = await client.resolveHostForRecipient('02aa…deadbeef')
     expect(result).toBe('https://peer.box')
@@ -730,11 +730,124 @@ describe('MessageBoxClient', () => {
       host: 'https://default.box'
     })
     await client.init()
-    ; (MessageBoxClient.prototype as any).queryAdvertisements
-      .mockResolvedValueOnce([])
+      ; (MessageBoxClient.prototype as any).queryAdvertisements
+        .mockResolvedValueOnce([])
 
     const result = await client.resolveHostForRecipient('03bb…cafef00d')
 
     expect(result).toBe('https://default.box')
+  })
+
+  it('anointHost queries advertisements for existing host records', async () => {
+    const anointMock = MessageBoxClient.prototype.anointHost as unknown as jest.Mock
+    anointMock.mockRestore()
+
+    const client = new MessageBoxClient({
+      walletClient: mockWalletClient,
+      host: 'https://default.box'
+    })
+
+    const querySpy = jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([])
+    jest.spyOn(mockWalletClient, 'listOutputs').mockResolvedValue({ outputs: [] } as any)
+    jest.spyOn(PushDrop.prototype, 'lock').mockResolvedValue({
+      toHex: () => '00',
+      toASM: () => 'OP_FALSE'
+    } as any)
+    jest.spyOn(Transaction, 'fromAtomicBEEF').mockReturnValue({} as any)
+    jest.spyOn(TopicBroadcaster.prototype as any, 'broadcast').mockResolvedValue({ txid: 'broadcasted-txid' })
+
+    await client.anointHost('https://fresh.host')
+
+    expect(querySpy).toHaveBeenCalledWith(
+      '02b463b8ef7f03c47fba2679c7334d13e4939b8ca30dbb6bbd22e34ea3e9b1b0e4'
+    )
+  })
+
+  it('anointHost signs all revoke inputs when multiple spendable advertisements exist', async () => {
+    const client = new MessageBoxClient({
+      walletClient: mockWalletClient,
+      host: 'https://default.box'
+    })
+
+    const tokenA = {
+      host: 'http://localhost:8080',
+      txid: 'tx-a',
+      outputIndex: 0,
+      lockingScript: {} as any,
+      beef: [1, 2, 3]
+    }
+    const tokenB = {
+      host: 'https://valid.host',
+      txid: 'tx-b',
+      outputIndex: 1,
+      lockingScript: {} as any,
+      beef: [4, 5, 6]
+    }
+
+    jest.spyOn(client as any, 'queryAdvertisements').mockResolvedValue([tokenA, tokenB])
+    jest.spyOn(mockWalletClient, 'listOutputs').mockResolvedValue({
+      outputs: [
+        { spendable: true, outpoint: 'tx-a.0' },
+        { spendable: true, outpoint: 'tx-b.1' }
+      ]
+    } as any)
+
+    jest.spyOn(PushDrop.prototype, 'lock').mockResolvedValue({
+      toHex: () => '00',
+      toASM: () => 'OP_FALSE'
+    } as any)
+
+    const unlockSignMock = jest
+      .fn()
+      .mockImplementation(async (_tx: unknown, inputIndex: number) => ({ toHex: () => `unlock-${inputIndex}` }))
+    jest.spyOn(PushDrop.prototype, 'unlock').mockReturnValue({ sign: unlockSignMock } as any)
+
+    const mergedBeef = {
+      mergeBeef: jest.fn(),
+      toBinary: jest.fn().mockReturnValue([9, 9, 9])
+    }
+    jest.spyOn(Beef, 'fromBinary').mockImplementation(() => mergedBeef as any)
+
+    const fromAtomicSpy = jest.spyOn(Transaction, 'fromAtomicBEEF')
+    fromAtomicSpy
+      .mockReturnValueOnce({} as any)
+      .mockReturnValueOnce({} as any)
+    jest.spyOn(Transaction, 'fromBEEF').mockReturnValue({ outputs: [{ satoshis: 1 }, { satoshis: 1 }] } as any)
+
+    const createActionSpy = jest.spyOn(mockWalletClient, 'createAction').mockResolvedValue({
+      signableTransaction: {
+        tx: [7, 7, 7],
+        reference: 'sign-ref'
+      }
+    } as any)
+    const signActionSpy = jest.spyOn(mockWalletClient, 'signAction').mockResolvedValue({
+      tx: [8, 8, 8],
+      txid: 'signed-txid'
+    } as any)
+    jest.spyOn(TopicBroadcaster.prototype as any, 'broadcast').mockResolvedValue({ txid: 'broadcasted-txid' })
+
+    const result = await client.anointHost('https://new.host')
+
+    expect(createActionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputBEEF: [9, 9, 9],
+        inputs: [
+          expect.objectContaining({ outpoint: 'tx-a.0' }),
+          expect.objectContaining({ outpoint: 'tx-b.1' })
+        ]
+      }),
+      undefined
+    )
+    expect(signActionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reference: 'sign-ref',
+        spends: {
+          0: { unlockingScript: 'unlock-0' },
+          1: { unlockingScript: 'unlock-1' }
+        }
+      }),
+      undefined
+    )
+    expect(result).toEqual({ txid: 'broadcasted-txid' })
   })
 })
