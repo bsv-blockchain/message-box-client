@@ -642,11 +642,19 @@ export class PeerPayClient extends MessageBoxClient {
       senderIdentityKey
     }
 
-    await this.sendMessage({
-      recipient: params.recipient,
-      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
-      body: JSON.stringify(body)
-    }, hostOverride)
+    try {
+      await this.sendMessage({
+        recipient: params.recipient,
+        messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+        body: JSON.stringify(body)
+      }, hostOverride)
+    } catch (err: any) {
+      // Translate HTTP 403 (permission denied) into a user-friendly message.
+      if (typeof err?.message === 'string' && err.message.includes('403')) {
+        throw new Error('Payment request blocked — you are not on the recipient\'s whitelist.')
+      }
+      throw err
+    }
 
     return { requestId }
   }
