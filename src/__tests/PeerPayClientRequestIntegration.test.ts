@@ -280,39 +280,9 @@ describe('PeerPayClient — Integration: payment request flow', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Test 5: Modified amount — payer pays a different amount
+  // Test 5: Requests below minAmount are auto-acknowledged and excluded
   // -------------------------------------------------------------------------
-  it('Test 5: payer fulfills with a modified amount', async () => {
-    const requester = createWiredClient({ bus, identityKey: REQUESTER_KEY, walletClient: mockWalletRequester })
-    const payer = createWiredClient({ bus, identityKey: PAYER_KEY, walletClient: mockWalletPayer })
-
-    const { requestId } = await requester.requestPayment({
-      recipient: PAYER_KEY,
-      amount: 5000,
-      description: 'Flexible request',
-      expiresAt: Date.now() + 60000
-    })
-
-    const incoming = await payer.listIncomingPaymentRequests()
-    expect(incoming).toHaveLength(1)
-
-    // Pay a different amount with a note
-    await payer.fulfillPaymentRequest({ request: incoming[0], amount: 4500, note: 'Partial payment' })
-
-    const responses = await requester.listPaymentRequestResponses()
-    expect(responses).toHaveLength(1)
-    expect(responses[0]).toMatchObject({
-      requestId,
-      status: 'paid',
-      amountPaid: 4500,
-      note: 'Partial payment'
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Test 6: Requests below minAmount are auto-acknowledged and excluded
-  // -------------------------------------------------------------------------
-  it('Test 6: requests below minAmount are auto-acknowledged and excluded', async () => {
+  it('Test 5: requests below minAmount are auto-acknowledged and excluded', async () => {
     const payer = createWiredClient({ bus, identityKey: PAYER_KEY, walletClient: mockWalletPayer })
 
     // Inject a request below the minAmount threshold
@@ -349,9 +319,9 @@ describe('PeerPayClient — Integration: payment request flow', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Test 7: Requests above maxAmount are auto-acknowledged and excluded
+  // Test 6: Requests above maxAmount are auto-acknowledged and excluded
   // -------------------------------------------------------------------------
-  it('Test 7: requests above maxAmount are auto-acknowledged and excluded', async () => {
+  it('Test 6: requests above maxAmount are auto-acknowledged and excluded', async () => {
     const payer = createWiredClient({ bus, identityKey: PAYER_KEY, walletClient: mockWalletPayer })
 
     // Inject a request above the maxAmount threshold

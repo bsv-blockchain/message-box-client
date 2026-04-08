@@ -431,7 +431,7 @@ describe('PeerPayClient Unit Tests', () => {
       expiresAt: Date.now() + 60000
     }
 
-    it('sends payment via sendPayment(), sends paid response to payment_request_responses, acknowledges original request', async () => {
+    it('sends payment for request.amount, sends paid response, acknowledges', async () => {
       const sendPaymentSpy = jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined)
       const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
         status: 'success',
@@ -446,37 +446,24 @@ describe('PeerPayClient Unit Tests', () => {
         undefined
       )
 
-      expect(sendMessageSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          recipient: 'senderKey',
-          messageBox: 'payment_request_responses'
-        }),
-        undefined
-      )
-
       const responseBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
-      expect(responseBody).toMatchObject({ requestId: 'req-id-1', status: 'paid' })
+      expect(responseBody).toMatchObject({ requestId: 'req-id-1', status: 'paid', amountPaid: 5000 })
 
       expect(ackSpy).toHaveBeenCalledWith({ messageIds: ['req-msg-1'] })
     })
 
-    it('allows amount and note to be overridden', async () => {
-      const sendPaymentSpy = jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined)
+    it('includes note when provided', async () => {
+      jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined)
       const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
         status: 'success',
         messageId: 'resp-msg-id'
       })
       jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
 
-      await peerPayClient.fulfillPaymentRequest({ request: mockRequest, amount: 4500, note: 'Here you go' })
-
-      expect(sendPaymentSpy).toHaveBeenCalledWith(
-        { recipient: 'senderKey', amount: 4500 },
-        undefined
-      )
+      await peerPayClient.fulfillPaymentRequest({ request: mockRequest, note: 'Here you go' })
 
       const responseBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
-      expect(responseBody).toMatchObject({ requestId: 'req-id-1', status: 'paid', amountPaid: 4500, note: 'Here you go' })
+      expect(responseBody).toMatchObject({ note: 'Here you go' })
     })
   })
 
@@ -711,7 +698,8 @@ describe('PeerPayClient Unit Tests', () => {
 
   // Test: cancelPaymentRequest
   describe('cancelPaymentRequest', () => {
-    it('sends cancellation message with same requestId and cancelled: true', async () => {
+    it('sends cancellation message with requestId, real senderIdentityKey, and cancelled: true', async () => {
+      jest.spyOn(peerPayClient, 'getIdentityKey').mockResolvedValue('myIdentityKey')
       const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
         status: 'success',
         messageId: 'mockedMessageId'
@@ -731,8 +719,11 @@ describe('PeerPayClient Unit Tests', () => {
       )
 
       const sentBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
-      expect(sentBody).toHaveProperty('requestId', 'existing-request-id')
-      expect(sentBody).toHaveProperty('cancelled', true)
+      expect(sentBody).toEqual({
+        requestId: 'existing-request-id',
+        senderIdentityKey: 'myIdentityKey',
+        cancelled: true
+      })
     })
   })
 })

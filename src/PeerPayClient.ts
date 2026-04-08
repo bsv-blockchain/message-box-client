@@ -11,7 +11,7 @@
  */
 
 import { MessageBoxClient } from './MessageBoxClient.js'
-import { PeerMessage, PaymentRequestMessage, PaymentRequestResponse, IncomingPaymentRequest, PaymentRequestLimits } from './types.js'
+import { PeerMessage, PaymentRequestMessage, PaymentRequestResponse, IncomingPaymentRequest, PaymentRequestLimits, DEFAULT_PAYMENT_REQUEST_MIN_AMOUNT, DEFAULT_PAYMENT_REQUEST_MAX_AMOUNT } from './types.js'
 import { WalletInterface, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes, Brc29RemittanceModule, createNonce } from '@bsv/sdk'
 
 import * as Logger from './Utils/logger.js'
@@ -498,14 +498,14 @@ export class PeerPayClient extends MessageBoxClient {
       overrideHost,
       onMessage: (message: PeerMessage) => {
         const body = safeParse<PaymentRequestMessage>(message.body)
+        if (body == null || body.cancelled === true) return // Skip cancellations and parse failures
         const request: IncomingPaymentRequest = {
           messageId: message.messageId,
           sender: message.sender,
           requestId: body.requestId,
           amount: body.amount,
           description: body.description,
-          expiresAt: body.expiresAt,
-          cancelled: body.cancelled
+          expiresAt: body.expiresAt
         }
         onRequest(request)
       }
@@ -547,24 +547,22 @@ export class PeerPayClient extends MessageBoxClient {
    *
    * @param {Object} params - Fulfillment parameters.
    * @param {IncomingPaymentRequest} params.request - The incoming payment request to fulfill.
-   * @param {number} [params.amount] - Optional amount override (defaults to request.amount).
    * @param {string} [params.note] - Optional note to include in the response.
    * @param {string} [hostOverride] - Optional host override for the message box server.
    * @returns {Promise<void>} Resolves when payment is sent and acknowledgment is complete.
    */
   async fulfillPaymentRequest (
-    params: { request: IncomingPaymentRequest, amount?: number, note?: string },
+    params: { request: IncomingPaymentRequest, note?: string },
     hostOverride?: string
   ): Promise<void> {
     const { request, note } = params
-    const amount = params.amount ?? request.amount
 
-    await this.sendPayment({ recipient: request.sender, amount }, hostOverride)
+    await this.sendPayment({ recipient: request.sender, amount: request.amount }, hostOverride)
 
     const response: PaymentRequestResponse = {
       requestId: request.requestId,
       status: 'paid',
-      amountPaid: amount,
+      amountPaid: request.amount,
       ...(note != null && { note })
     }
 
@@ -574,7 +572,7 @@ export class PeerPayClient extends MessageBoxClient {
       body: JSON.stringify(response)
     }, hostOverride)
 
-    await this.acknowledgeMessage({ messageIds: [request.messageId] })
+    await this.acknowledgeMessage({ messageIds: [request.messageId], host: hostOverride })
   }
 
   /**
@@ -605,7 +603,7 @@ export class PeerPayClient extends MessageBoxClient {
       body: JSON.stringify(response)
     }, hostOverride)
 
-    await this.acknowledgeMessage({ messageIds: [request.messageId] })
+    await this.acknowledgeMessage({ messageIds: [request.messageId], host: hostOverride })
   }
 
   /**
@@ -770,12 +768,11 @@ export class PeerPayClient extends MessageBoxClient {
     params: { recipient: string, requestId: string },
     hostOverride?: string
   ): Promise<void> {
+    const senderIdentityKey = await this.getIdentityKey()
+
     const body: PaymentRequestMessage = {
       requestId: params.requestId,
-      amount: 0,
-      description: '',
-      expiresAt: 0,
-      senderIdentityKey: '',
+      senderIdentityKey,
       cancelled: true
     }
 
