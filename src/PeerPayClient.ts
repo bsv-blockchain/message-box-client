@@ -627,7 +627,7 @@ export class PeerPayClient extends MessageBoxClient {
       throw new Error('Invalid payment request: amount must be greater than 0')
     }
 
-    const requestId = await createNonce(this.peerPayWalletClient, this.originator)
+    const requestId = await createNonce(this.peerPayWalletClient, 'self', this.originator)
     const senderIdentityKey = await this.getIdentityKey()
 
     const body: PaymentRequestMessage = {
