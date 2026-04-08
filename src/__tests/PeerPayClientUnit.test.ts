@@ -243,6 +243,183 @@ describe('PeerPayClient Unit Tests', () => {
     })
   })
 
+  // Test: listIncomingPaymentRequests
+  describe('listIncomingPaymentRequests', () => {
+    const futureExpiry = Date.now() + 60000
+    const pastExpiry = Date.now() - 60000
+
+    it('returns parsed request messages from payment_requests box', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'msg1',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req1',
+            amount: 5000,
+            description: 'Test request',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender1'
+          })
+        }
+      ])
+      jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]).toMatchObject({
+        messageId: 'msg1',
+        sender: 'sender1',
+        requestId: 'req1',
+        amount: 5000,
+        description: 'Test request'
+      })
+    })
+
+    it('filters expired requests and acknowledges them', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'expired-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-expired',
+            amount: 5000,
+            description: 'Expired request',
+            expiresAt: pastExpiry,
+            senderIdentityKey: 'sender1'
+          })
+        },
+        {
+          messageId: 'active-msg',
+          sender: 'sender2',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-active',
+            amount: 3000,
+            description: 'Active request',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender2'
+          })
+        }
+      ])
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0].requestId).toBe('req-active')
+      expect(ackSpy).toHaveBeenCalledWith({ messageIds: ['expired-msg'] })
+    })
+
+    it('filters cancelled requests and acknowledges both original and cancel messages', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'original-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-cancel',
+            amount: 5000,
+            description: 'To be cancelled',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender1'
+          })
+        },
+        {
+          messageId: 'cancel-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:01:00Z',
+          updated_at: '2025-01-01T00:01:00Z',
+          body: JSON.stringify({
+            requestId: 'req-cancel',
+            amount: 0,
+            description: '',
+            expiresAt: 0,
+            senderIdentityKey: '',
+            cancelled: true
+          })
+        },
+        {
+          messageId: 'other-msg',
+          sender: 'sender2',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-other',
+            amount: 2000,
+            description: 'Other request',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender2'
+          })
+        }
+      ])
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0].requestId).toBe('req-other')
+      expect(ackSpy).toHaveBeenCalledWith({ messageIds: expect.arrayContaining(['original-msg', 'cancel-msg']) })
+    })
+
+    it('filters out requests below minAmount and above maxAmount, acknowledges them', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'too-small',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-small',
+            amount: 100,
+            description: 'Too small',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender1'
+          })
+        },
+        {
+          messageId: 'too-large',
+          sender: 'sender2',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-large',
+            amount: 99999,
+            description: 'Too large',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender2'
+          })
+        },
+        {
+          messageId: 'just-right',
+          sender: 'sender3',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-ok',
+            amount: 5000,
+            description: 'Just right',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender3'
+          })
+        }
+      ])
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests(undefined, { minAmount: 1000, maxAmount: 10000 })
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0].requestId).toBe('req-ok')
+      expect(ackSpy).toHaveBeenCalledWith({ messageIds: expect.arrayContaining(['too-small', 'too-large']) })
+    })
+  })
+
   // Test: requestPayment
   describe('requestPayment', () => {
     it('sends payment request message to payment_requests box with correct body fields', async () => {

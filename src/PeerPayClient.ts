@@ -453,6 +453,103 @@ export class PeerPayClient extends MessageBoxClient {
   }
 
   /**
+   * Lists all incoming payment requests from the payment_requests message box.
+   *
+   * Automatically filters out:
+   * - Expired requests (expiresAt < now), which are acknowledged and discarded.
+   * - Cancelled requests (a cancellation message with the same requestId exists),
+   *   both the original and cancellation messages are acknowledged and discarded.
+   * - Out-of-range requests (when limits are provided), which are acknowledged and discarded.
+   *
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @param {PaymentRequestLimits} [limits] - Optional min/max satoshi limits for filtering.
+   * @returns {Promise<IncomingPaymentRequest[]>} Resolves with active, valid payment requests.
+   */
+  async listIncomingPaymentRequests (
+    hostOverride?: string,
+    limits?: PaymentRequestLimits
+  ): Promise<IncomingPaymentRequest[]> {
+    const messages = await this.listMessages({ messageBox: PAYMENT_REQUESTS_MESSAGEBOX, host: hostOverride })
+    const now = Date.now()
+
+    // Parse all messages
+    const parsed = messages.map((msg: any) => ({
+      messageId: msg.messageId as string,
+      sender: msg.sender as string,
+      body: safeParse<PaymentRequestMessage>(msg.body)
+    }))
+
+    // Collect cancelled requestIds and their cancel message IDs
+    const cancelledRequestIds = new Set<string>()
+    const cancelMessageIds: string[] = []
+    for (const item of parsed) {
+      if (item.body.cancelled === true) {
+        cancelledRequestIds.add(item.body.requestId)
+        cancelMessageIds.push(item.messageId)
+      }
+    }
+
+    const expiredMessageIds: string[] = []
+    const outOfRangeMessageIds: string[] = []
+    const cancelledOriginalMessageIds: string[] = []
+    const active: IncomingPaymentRequest[] = []
+
+    for (const item of parsed) {
+      // Skip cancellation messages themselves (already collected above)
+      if (item.body.cancelled === true) continue
+
+      const { requestId, amount, description, expiresAt } = item.body
+
+      // Filter expired
+      if (expiresAt < now) {
+        expiredMessageIds.push(item.messageId)
+        continue
+      }
+
+      // Filter cancelled originals
+      if (cancelledRequestIds.has(requestId)) {
+        cancelledOriginalMessageIds.push(item.messageId)
+        continue
+      }
+
+      // Filter out-of-range when limits provided
+      if (limits != null) {
+        if (amount < limits.minAmount || amount > limits.maxAmount) {
+          outOfRangeMessageIds.push(item.messageId)
+          continue
+        }
+      }
+
+      active.push({
+        messageId: item.messageId,
+        sender: item.sender,
+        requestId,
+        amount,
+        description,
+        expiresAt
+      })
+    }
+
+    // Acknowledge expired
+    if (expiredMessageIds.length > 0) {
+      await this.acknowledgeMessage({ messageIds: expiredMessageIds })
+    }
+
+    // Acknowledge cancelled originals + cancel messages together
+    const cancelAckIds = [...cancelledOriginalMessageIds, ...cancelMessageIds]
+    if (cancelAckIds.length > 0) {
+      await this.acknowledgeMessage({ messageIds: cancelAckIds })
+    }
+
+    // Acknowledge out-of-range
+    if (outOfRangeMessageIds.length > 0) {
+      await this.acknowledgeMessage({ messageIds: outOfRangeMessageIds })
+    }
+
+    return active
+  }
+
+  /**
    * Cancels a previously sent payment request by sending a cancellation message
    * with the same requestId and `cancelled: true`.
    *
