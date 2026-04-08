@@ -36,7 +36,8 @@ jest.mock('@bsv/sdk', () => {
       internalizeAction: jest.fn(),
       createHmac: jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({
         hmac: [1, 2, 3, 4, 5]
-      })
+      }),
+      verifyHmac: jest.fn().mockResolvedValue({ valid: true })
     }))
   }
 })
@@ -260,7 +261,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'Test request',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender1'
+            senderIdentityKey: 'sender1',
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -290,7 +292,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'Expired request',
             expiresAt: pastExpiry,
-            senderIdentityKey: 'sender1'
+            senderIdentityKey: 'sender1',
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -303,7 +306,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 3000,
             description: 'Active request',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender2'
+            senderIdentityKey: 'sender2',
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -328,7 +332,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'To be cancelled',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender1'
+            senderIdentityKey: 'sender1',
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -338,11 +343,9 @@ describe('PeerPayClient Unit Tests', () => {
           updated_at: '2025-01-01T00:01:00Z',
           body: JSON.stringify({
             requestId: 'req-cancel',
-            amount: 0,
-            description: '',
-            expiresAt: 0,
-            senderIdentityKey: '',
-            cancelled: true
+            senderIdentityKey: 'sender1',
+            cancelled: true,
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -355,7 +358,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 2000,
             description: 'Other request',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender2'
+            senderIdentityKey: 'sender2',
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -387,7 +391,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'Valid request',
             expiresAt: Date.now() + 60000,
-            senderIdentityKey: 'sender2'
+            senderIdentityKey: 'sender2',
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -435,7 +440,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'Real request',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender1'
+            senderIdentityKey: 'sender1',
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -446,7 +452,8 @@ describe('PeerPayClient Unit Tests', () => {
           body: JSON.stringify({
             requestId: 'req-1',
             senderIdentityKey: 'attacker',
-            cancelled: true
+            cancelled: true,
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -471,7 +478,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 100,
             description: 'Too small',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender1'
+            senderIdentityKey: 'sender1',
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -484,7 +492,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 99999,
             description: 'Too large',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender2'
+            senderIdentityKey: 'sender2',
+            requestProof: 'abcd1234'
           })
         },
         {
@@ -497,7 +506,8 @@ describe('PeerPayClient Unit Tests', () => {
             amount: 5000,
             description: 'Just right',
             expiresAt: futureExpiry,
-            senderIdentityKey: 'sender3'
+            senderIdentityKey: 'sender3',
+            requestProof: 'abcd1234'
           })
         }
       ])
@@ -645,7 +655,8 @@ describe('PeerPayClient Unit Tests', () => {
           amount: 3000,
           description: 'Live request',
           expiresAt: Date.now() + 60000,
-          senderIdentityKey: 'sender1'
+          senderIdentityKey: 'sender1',
+          requestProof: 'abcd1234'
         })
       })
 
@@ -775,6 +786,11 @@ describe('PeerPayClient Unit Tests', () => {
       expect(sentBody).toHaveProperty('amount', 1000)
       expect(sentBody).toHaveProperty('description', 'Please pay me')
       expect(sentBody).toHaveProperty('senderIdentityKey', 'myIdentityKey')
+      expect(sentBody).toHaveProperty('requestProof')
+      expect(typeof sentBody.requestProof).toBe('string')
+      expect(sentBody.requestProof.length).toBeGreaterThan(0)
+
+      expect(result).toHaveProperty('requestProof')
     })
 
     it('throws if amount <= 0', async () => {
@@ -798,7 +814,8 @@ describe('PeerPayClient Unit Tests', () => {
 
       await peerPayClient.cancelPaymentRequest({
         recipient: 'recipientKey',
-        requestId: 'existing-request-id'
+        requestId: 'existing-request-id',
+        requestProof: 'original-proof-hex'
       })
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
@@ -813,6 +830,7 @@ describe('PeerPayClient Unit Tests', () => {
       expect(sentBody).toEqual({
         requestId: 'existing-request-id',
         senderIdentityKey: 'myIdentityKey',
+        requestProof: 'original-proof-hex',
         cancelled: true
       })
     })

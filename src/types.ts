@@ -209,6 +209,8 @@ export interface PaymentRequestNew extends PaymentRequestBase {
   description: string
   /** Unix timestamp (ms) after which the request expires. Set by the sender. */
   expiresAt: number
+  /** HMAC proof tying this request to the sender's identity. Used to authorize cancellations. */
+  requestProof: string
   /** Omitted or false for a new payment request. */
   cancelled?: false
 }
@@ -220,6 +222,8 @@ export interface PaymentRequestNew extends PaymentRequestBase {
 export interface PaymentRequestCancellation extends PaymentRequestBase {
   /** If true, this message cancels a previously sent request with the same requestId. */
   cancelled: true
+  /** HMAC proof from the original request, proving cancellation authority. */
+  requestProof: string
 }
 
 /**

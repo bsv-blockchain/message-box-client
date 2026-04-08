@@ -160,10 +160,12 @@ describe('PeerPayClient — Integration: payment request flow', () => {
     mockWalletRequester = new WalletClient() as jest.Mocked<WalletClient>
     mockWalletRequester.getPublicKey.mockResolvedValue({ publicKey: REQUESTER_KEY })
     mockWalletRequester.createHmac = jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({ hmac: [1, 2, 3, 4, 5] })
+    mockWalletRequester.verifyHmac = jest.fn().mockResolvedValue({ valid: true })
 
     mockWalletPayer = new WalletClient() as jest.Mocked<WalletClient>
     mockWalletPayer.getPublicKey.mockResolvedValue({ publicKey: PAYER_KEY })
     mockWalletPayer.createHmac = jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({ hmac: [1, 2, 3, 4, 5] })
+    mockWalletPayer.verifyHmac = jest.fn().mockResolvedValue({ valid: true })
   })
 
   // -------------------------------------------------------------------------
@@ -229,7 +231,7 @@ describe('PeerPayClient — Integration: payment request flow', () => {
     const requester = createWiredClient({ bus, identityKey: REQUESTER_KEY, walletClient: mockWalletRequester })
     const payer = createWiredClient({ bus, identityKey: PAYER_KEY, walletClient: mockWalletPayer })
 
-    const { requestId } = await requester.requestPayment({
+    const { requestId, requestProof } = await requester.requestPayment({
       recipient: PAYER_KEY,
       amount: 2000,
       description: 'Cancellable request',
@@ -241,7 +243,7 @@ describe('PeerPayClient — Integration: payment request flow', () => {
     expect(beforeCancel).toHaveLength(1)
 
     // Requester cancels the request
-    await requester.cancelPaymentRequest({ recipient: PAYER_KEY, requestId })
+    await requester.cancelPaymentRequest({ recipient: PAYER_KEY, requestId, requestProof })
 
     // Payer should now see zero active requests (the cancel message causes filtering)
     const afterCancel = await payer.listIncomingPaymentRequests()
@@ -260,7 +262,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 4000,
       description: 'Already expired',
       expiresAt: Date.now() - 10000, // in the past
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: expiredBody, sender: REQUESTER_KEY })
 
@@ -270,7 +273,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 4000,
       description: 'Still valid',
       expiresAt: Date.now() + 60000,
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: validBody, sender: REQUESTER_KEY })
 
@@ -291,7 +295,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 100, // below minAmount of 1000
       description: 'Too small',
       expiresAt: Date.now() + 60000,
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: smallBody, sender: REQUESTER_KEY })
 
@@ -301,7 +306,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 5000,
       description: 'Just right',
       expiresAt: Date.now() + 60000,
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: okBody, sender: REQUESTER_KEY })
 
@@ -330,7 +336,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 99999, // above maxAmount of 10000
       description: 'Too large',
       expiresAt: Date.now() + 60000,
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: largeBody, sender: REQUESTER_KEY })
 
@@ -340,7 +347,8 @@ describe('PeerPayClient — Integration: payment request flow', () => {
       amount: 5000,
       description: 'Just right',
       expiresAt: Date.now() + 60000,
-      senderIdentityKey: REQUESTER_KEY
+      senderIdentityKey: REQUESTER_KEY,
+      requestProof: 'mock-proof'
     })
     bus.send({ recipient: PAYER_KEY, messageBox: PAYMENT_REQUESTS_MESSAGEBOX, body: okBody, sender: REQUESTER_KEY })
 

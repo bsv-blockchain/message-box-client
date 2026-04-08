@@ -37,6 +37,7 @@ function isValidPaymentRequestMessage (obj: any): obj is PaymentRequestMessage {
   if (typeof obj !== 'object' || obj === null) return false
   if (typeof obj.requestId !== 'string') return false
   if (typeof obj.senderIdentityKey !== 'string') return false
+  if (typeof obj.requestProof !== 'string') return false
   if (obj.cancelled === true) return true
   return typeof obj.amount === 'number' && typeof obj.description === 'string' && typeof obj.expiresAt === 'number'
 }
@@ -639,7 +640,7 @@ export class PeerPayClient extends MessageBoxClient {
   async requestPayment (
     params: { recipient: string, amount: number, description: string, expiresAt: number },
     hostOverride?: string
-  ): Promise<{ requestId: string }> {
+  ): Promise<{ requestId: string, requestProof: string }> {
     if (params.amount <= 0) {
       throw new Error('Invalid payment request: amount must be greater than 0')
     }
@@ -647,12 +648,22 @@ export class PeerPayClient extends MessageBoxClient {
     const requestId = await createNonce(this.peerPayWalletClient, 'self', this.originator)
     const senderIdentityKey = await this.getIdentityKey()
 
+    const proofData = Array.from(new TextEncoder().encode(requestId + params.recipient))
+    const { hmac } = await this.peerPayWalletClient.createHmac({
+      data: proofData,
+      protocolID: [2, 'payment request auth'],
+      keyID: requestId,
+      counterparty: params.recipient
+    }, this.originator)
+    const requestProof = Array.from(hmac).map(b => b.toString(16).padStart(2, '0')).join('')
+
     const body: PaymentRequestMessage = {
       requestId,
       amount: params.amount,
       description: params.description,
       expiresAt: params.expiresAt,
-      senderIdentityKey
+      senderIdentityKey,
+      requestProof
     }
 
     try {
@@ -669,7 +680,7 @@ export class PeerPayClient extends MessageBoxClient {
       throw err
     }
 
-    return { requestId }
+    return { requestId, requestProof }
   }
 
   /**
@@ -690,6 +701,7 @@ export class PeerPayClient extends MessageBoxClient {
     limits?: PaymentRequestLimits
   ): Promise<IncomingPaymentRequest[]> {
     const messages = await this.listMessages({ messageBox: PAYMENT_REQUESTS_MESSAGEBOX, host: hostOverride })
+    const myIdentityKey = await this.getIdentityKey()
     const now = Date.now()
 
     // Parse and validate all messages, collecting malformed ones for ack
@@ -705,13 +717,28 @@ export class PeerPayClient extends MessageBoxClient {
       }
     }
 
-    // Collect cancelled requestIds — only from same sender (prevents spoofing)
+    // Collect cancelled requestIds — verify HMAC proof before accepting
     const cancelledRequests = new Map<string, string>() // requestId → sender
     const cancelMessageIds: string[] = []
     for (const item of parsed) {
       if (item.body.cancelled === true) {
-        cancelledRequests.set(item.body.requestId, item.sender)
-        cancelMessageIds.push(item.messageId)
+        // Verify cancellation HMAC proof
+        try {
+          const proofData = Array.from(new TextEncoder().encode(item.body.requestId + myIdentityKey))
+          await this.peerPayWalletClient.verifyHmac({
+            data: proofData,
+            hmac: Array.from(Buffer.from(item.body.requestProof, 'hex')),
+            protocolID: [2, 'payment request auth'],
+            keyID: item.body.requestId,
+            counterparty: item.sender
+          }, this.originator)
+          cancelledRequests.set(item.body.requestId, item.sender)
+          cancelMessageIds.push(item.messageId)
+        } catch {
+          Logger.warn(`[PP CLIENT] Invalid cancellation proof for requestId=${item.body.requestId}, discarding`)
+          malformedMessageIds.push(item.messageId)
+        }
+        continue
       }
     }
 
@@ -743,6 +770,22 @@ export class PeerPayClient extends MessageBoxClient {
       const effectiveMax = limits?.maxAmount ?? DEFAULT_PAYMENT_REQUEST_MAX_AMOUNT
       if (amount < effectiveMin || amount > effectiveMax) {
         outOfRangeMessageIds.push(item.messageId)
+        continue
+      }
+
+      // Verify HMAC proof — ensures message came from claimed sender
+      try {
+        const proofData = Array.from(new TextEncoder().encode(requestId + myIdentityKey))
+        await this.peerPayWalletClient.verifyHmac({
+          data: proofData,
+          hmac: Array.from(Buffer.from(item.body.requestProof, 'hex')),
+          protocolID: [2, 'payment request auth'],
+          keyID: requestId,
+          counterparty: item.sender
+        }, this.originator)
+      } catch {
+        Logger.warn(`[PP CLIENT] Invalid requestProof for requestId=${requestId}, discarding`)
+        malformedMessageIds.push(item.messageId)
         continue
       }
 
@@ -791,7 +834,7 @@ export class PeerPayClient extends MessageBoxClient {
    * @returns {Promise<void>} Resolves when the cancellation message has been sent.
    */
   async cancelPaymentRequest (
-    params: { recipient: string, requestId: string },
+    params: { recipient: string, requestId: string, requestProof: string },
     hostOverride?: string
   ): Promise<void> {
     const senderIdentityKey = await this.getIdentityKey()
@@ -799,6 +842,7 @@ export class PeerPayClient extends MessageBoxClient {
     const body: PaymentRequestMessage = {
       requestId: params.requestId,
       senderIdentityKey,
+      requestProof: params.requestProof,
       cancelled: true
     }
 
