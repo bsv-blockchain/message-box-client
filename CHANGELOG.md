@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 ## Table of Contents
 
 - [Unreleased](#unreleased)
+- [2.0.7 - 2026-04-08](#207---2026-04-08)
 - [2.0.0 - 2026-02-06](#200---2026-02-06)
 - [Template for New Releases](#template-for-new-releases)
 
@@ -29,9 +30,9 @@ All notable changes to this project will be documented in this file. The format 
 ### Added
 
 - Payment request methods on PeerPayClient:
-  - `requestPayment()` — send a payment request to a recipient
-  - `cancelPaymentRequest()` — cancel a pending request
-  - `listIncomingPaymentRequests()` — list requests with expiry, cancellation, and min/max amount filtering
+  - `requestPayment()` — send a payment request with HMAC-based authorization proof
+  - `cancelPaymentRequest()` — cancel a pending request (requires original requestProof)
+  - `listIncomingPaymentRequests()` — list requests with HMAC verification, expiry, cancellation, and amount filtering (defaults: min 1000, max 10M sats)
   - `fulfillPaymentRequest()` — pay a request and send status response
   - `declinePaymentRequest()` — decline a request with optional note
   - `listPaymentRequestResponses()` — list responses to outgoing requests
@@ -42,9 +43,15 @@ All notable changes to this project will be documented in this file. The format 
   - `blockPaymentRequestsFrom()` — block an identity
   - `listPaymentRequestPermissions()` — list whitelisted/blocked identities
 - New message box constants: `PAYMENT_REQUESTS_MESSAGEBOX`, `PAYMENT_REQUEST_RESPONSES_MESSAGEBOX`
-- New types: `PaymentRequestMessage`, `PaymentRequestResponse`, `IncomingPaymentRequest`, `PaymentRequestLimits`
-- Unit tests for all 11 new methods
-- Integration tests for full round-trip payment request flows
+- New types: `PaymentRequestMessage` (discriminated union), `PaymentRequestResponse`, `IncomingPaymentRequest`, `PaymentRequestLimits`
+- Default limit constants: `DEFAULT_PAYMENT_REQUEST_MIN_AMOUNT`, `DEFAULT_PAYMENT_REQUEST_MAX_AMOUNT`
+- Unit and integration tests for all payment request methods
+
+### Security
+
+- Payment request cancellations are now authorized via HMAC proof — only the original sender can cancel a request
+- Malformed message bodies are validated and discarded instead of silently becoming ghost entries
+- Cancellation sender verification prevents cross-sender cancellation spoofing
 
 ---
 
