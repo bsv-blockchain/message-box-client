@@ -242,4 +242,75 @@ describe('PeerPayClient Unit Tests', () => {
       expect(payments[1].token.amount).toBe(9)
     })
   })
+
+  // Test: requestPayment
+  describe('requestPayment', () => {
+    it('sends payment request message to payment_requests box with correct body fields', async () => {
+      jest.spyOn(peerPayClient, 'getIdentityKey').mockResolvedValue('myIdentityKey')
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'mockedMessageId'
+      })
+
+      const result = await peerPayClient.requestPayment({
+        recipient: 'recipientKey',
+        amount: 1000,
+        description: 'Please pay me',
+        expiresAt: Date.now() + 60000
+      })
+
+      expect(result).toHaveProperty('requestId')
+      expect(typeof result.requestId).toBe('string')
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: 'recipientKey',
+          messageBox: 'payment_requests',
+          body: expect.stringContaining('"amount":1000')
+        }),
+        undefined
+      )
+
+      const sentBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
+      expect(sentBody).toHaveProperty('requestId')
+      expect(sentBody).toHaveProperty('amount', 1000)
+      expect(sentBody).toHaveProperty('description', 'Please pay me')
+      expect(sentBody).toHaveProperty('senderIdentityKey', 'myIdentityKey')
+    })
+
+    it('throws if amount <= 0', async () => {
+      await expect(peerPayClient.requestPayment({
+        recipient: 'recipientKey',
+        amount: 0,
+        description: 'Bad request',
+        expiresAt: Date.now() + 60000
+      })).rejects.toThrow()
+    })
+  })
+
+  // Test: cancelPaymentRequest
+  describe('cancelPaymentRequest', () => {
+    it('sends cancellation message with same requestId and cancelled: true', async () => {
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'mockedMessageId'
+      })
+
+      await peerPayClient.cancelPaymentRequest({
+        recipient: 'recipientKey',
+        requestId: 'existing-request-id'
+      })
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: 'recipientKey',
+          messageBox: 'payment_requests'
+        }),
+        undefined
+      )
+
+      const sentBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
+      expect(sentBody).toHaveProperty('requestId', 'existing-request-id')
+      expect(sentBody).toHaveProperty('cancelled', true)
+    })
+  })
 })

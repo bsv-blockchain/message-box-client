@@ -11,8 +11,8 @@
  */
 
 import { MessageBoxClient } from './MessageBoxClient.js'
-import { PeerMessage } from './types.js'
-import { WalletInterface, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes, Brc29RemittanceModule } from '@bsv/sdk'
+import { PeerMessage, PaymentRequestMessage, PaymentRequestResponse, IncomingPaymentRequest, PaymentRequestLimits } from './types.js'
+import { WalletInterface, AtomicBEEF, AuthFetch, Base64String, OriginatorDomainNameStringUnder250Bytes, Brc29RemittanceModule, createNonce } from '@bsv/sdk'
 
 import * as Logger from './Utils/logger.js'
 
@@ -32,6 +32,8 @@ function safeParse<T> (input: any): T {
 }
 
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
+export const PAYMENT_REQUESTS_MESSAGEBOX = 'payment_requests'
+export const PAYMENT_REQUEST_RESPONSES_MESSAGEBOX = 'payment_request_responses'
 const STANDARD_PAYMENT_OUTPUT_INDEX = 0
 
 /**
@@ -159,8 +161,8 @@ export class PeerPayClient extends MessageBoxClient {
 
     return {
       customInstructions: {
-        derivationPrefix: result.artifact.customInstructions.derivationPrefix as Base64String,
-        derivationSuffix: result.artifact.customInstructions.derivationSuffix as Base64String
+        derivationPrefix: result.artifact.customInstructions.derivationPrefix,
+        derivationSuffix: result.artifact.customInstructions.derivationSuffix
       },
       transaction: result.artifact.transaction as AtomicBEEF,
       amount: result.artifact.amountSatoshis
@@ -405,5 +407,78 @@ export class PeerPayClient extends MessageBoxClient {
         token: parsedToken
       }
     })
+  }
+
+  /**
+   * Sends a payment request to a recipient via the payment_requests message box.
+   *
+   * Generates a unique requestId using createNonce, looks up the caller's identity key,
+   * and sends a PaymentRequestMessage to the recipient.
+   *
+   * @param {Object} params - Payment request parameters.
+   * @param {string} params.recipient - The identity key of the intended payer.
+   * @param {number} params.amount - The amount in satoshis being requested (must be > 0).
+   * @param {string} params.description - Human-readable reason for the payment request.
+   * @param {number} params.expiresAt - Unix timestamp (ms) when the request expires.
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @returns {Promise<{ requestId: string }>} The generated requestId for this request.
+   * @throws {Error} If amount is <= 0.
+   */
+  async requestPayment (
+    params: { recipient: string, amount: number, description: string, expiresAt: number },
+    hostOverride?: string
+  ): Promise<{ requestId: string }> {
+    if (params.amount <= 0) {
+      throw new Error('Invalid payment request: amount must be greater than 0')
+    }
+
+    const requestId = await createNonce(this.peerPayWalletClient, this.originator)
+    const senderIdentityKey = await this.getIdentityKey()
+
+    const body: PaymentRequestMessage = {
+      requestId,
+      amount: params.amount,
+      description: params.description,
+      expiresAt: params.expiresAt,
+      senderIdentityKey
+    }
+
+    await this.sendMessage({
+      recipient: params.recipient,
+      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+      body: JSON.stringify(body)
+    }, hostOverride)
+
+    return { requestId }
+  }
+
+  /**
+   * Cancels a previously sent payment request by sending a cancellation message
+   * with the same requestId and `cancelled: true`.
+   *
+   * @param {Object} params - Cancellation parameters.
+   * @param {string} params.recipient - The identity key of the recipient of the original request.
+   * @param {string} params.requestId - The requestId of the payment request to cancel.
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @returns {Promise<void>} Resolves when the cancellation message has been sent.
+   */
+  async cancelPaymentRequest (
+    params: { recipient: string, requestId: string },
+    hostOverride?: string
+  ): Promise<void> {
+    const body: PaymentRequestMessage = {
+      requestId: params.requestId,
+      amount: 0,
+      description: '',
+      expiresAt: 0,
+      senderIdentityKey: '',
+      cancelled: true
+    }
+
+    await this.sendMessage({
+      recipient: params.recipient,
+      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+      body: JSON.stringify(body)
+    }, hostOverride)
   }
 }
