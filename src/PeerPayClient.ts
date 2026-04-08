@@ -410,6 +410,84 @@ export class PeerPayClient extends MessageBoxClient {
   }
 
   /**
+   * Lists all responses to payment requests from the payment_request_responses message box.
+   *
+   * Retrieves messages and parses each as a PaymentRequestResponse.
+   *
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @returns {Promise<PaymentRequestResponse[]>} Resolves with an array of payment request responses.
+   */
+  async listPaymentRequestResponses (hostOverride?: string): Promise<PaymentRequestResponse[]> {
+    const messages = await this.listMessages({ messageBox: PAYMENT_REQUEST_RESPONSES_MESSAGEBOX, host: hostOverride })
+    return messages.map((msg: any) => safeParse<PaymentRequestResponse>(msg.body))
+  }
+
+  /**
+   * Listens for incoming payment requests in real time via WebSocket.
+   *
+   * Wraps listenForLiveMessages on the payment_requests box and converts each
+   * incoming PeerMessage into an IncomingPaymentRequest before calling onRequest.
+   *
+   * @param {Object} params - Listener configuration.
+   * @param {Function} params.onRequest - Callback invoked when a new payment request arrives.
+   * @param {string} [params.overrideHost] - Optional host override for the WebSocket connection.
+   * @returns {Promise<void>} Resolves when the listener is established.
+   */
+  async listenForLivePaymentRequests ({
+    onRequest,
+    overrideHost
+  }: {
+    onRequest: (request: IncomingPaymentRequest) => void
+    overrideHost?: string
+  }): Promise<void> {
+    await this.listenForLiveMessages({
+      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+      overrideHost,
+      onMessage: (message: PeerMessage) => {
+        const body = safeParse<PaymentRequestMessage>(message.body)
+        const request: IncomingPaymentRequest = {
+          messageId: message.messageId,
+          sender: message.sender,
+          requestId: body.requestId,
+          amount: body.amount,
+          description: body.description,
+          expiresAt: body.expiresAt,
+          cancelled: body.cancelled
+        }
+        onRequest(request)
+      }
+    })
+  }
+
+  /**
+   * Listens for payment request responses in real time via WebSocket.
+   *
+   * Wraps listenForLiveMessages on the payment_request_responses box and converts each
+   * incoming PeerMessage into a PaymentRequestResponse before calling onResponse.
+   *
+   * @param {Object} params - Listener configuration.
+   * @param {Function} params.onResponse - Callback invoked when a new response arrives.
+   * @param {string} [params.overrideHost] - Optional host override for the WebSocket connection.
+   * @returns {Promise<void>} Resolves when the listener is established.
+   */
+  async listenForLivePaymentRequestResponses ({
+    onResponse,
+    overrideHost
+  }: {
+    onResponse: (response: PaymentRequestResponse) => void
+    overrideHost?: string
+  }): Promise<void> {
+    await this.listenForLiveMessages({
+      messageBox: PAYMENT_REQUEST_RESPONSES_MESSAGEBOX,
+      overrideHost,
+      onMessage: (message: PeerMessage) => {
+        const response = safeParse<PaymentRequestResponse>(message.body)
+        onResponse(response)
+      }
+    })
+  }
+
+  /**
    * Fulfills an incoming payment request by sending the requested payment and
    * notifying the requester with a 'paid' response in the payment_request_responses box.
    * Also acknowledges the original request message.

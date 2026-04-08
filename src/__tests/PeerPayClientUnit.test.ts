@@ -515,6 +515,96 @@ describe('PeerPayClient Unit Tests', () => {
     })
   })
 
+  // Test: listPaymentRequestResponses
+  describe('listPaymentRequestResponses', () => {
+    it('returns parsed responses from payment_request_responses box', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'resp-1',
+          sender: 'payer1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({ requestId: 'req-1', status: 'paid', amountPaid: 5000 })
+        },
+        {
+          messageId: 'resp-2',
+          sender: 'payer2',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({ requestId: 'req-2', status: 'declined', note: 'No funds' })
+        }
+      ])
+
+      const responses = await peerPayClient.listPaymentRequestResponses()
+
+      expect(responses).toHaveLength(2)
+      expect(responses[0]).toMatchObject({ requestId: 'req-1', status: 'paid', amountPaid: 5000 })
+      expect(responses[1]).toMatchObject({ requestId: 'req-2', status: 'declined', note: 'No funds' })
+    })
+  })
+
+  // Test: listenForLivePaymentRequests
+  describe('listenForLivePaymentRequests', () => {
+    it('calls listenForLiveMessages on payment_requests box and converts messages to IncomingPaymentRequest', async () => {
+      const listenSpy = jest.spyOn(peerPayClient, 'listenForLiveMessages').mockResolvedValue(undefined)
+      const onRequest = jest.fn()
+
+      await peerPayClient.listenForLivePaymentRequests({ onRequest })
+
+      expect(listenSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ messageBox: 'payment_requests' })
+      )
+
+      // Simulate a message arriving by calling the onMessage callback
+      const { onMessage } = (listenSpy.mock.calls[0][0] as any)
+      onMessage({
+        messageId: 'live-msg-1',
+        sender: 'sender1',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+        body: JSON.stringify({
+          requestId: 'req-live-1',
+          amount: 3000,
+          description: 'Live request',
+          expiresAt: Date.now() + 60000,
+          senderIdentityKey: 'sender1'
+        })
+      })
+
+      expect(onRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ messageId: 'live-msg-1', requestId: 'req-live-1', amount: 3000 })
+      )
+    })
+  })
+
+  // Test: listenForLivePaymentRequestResponses
+  describe('listenForLivePaymentRequestResponses', () => {
+    it('calls listenForLiveMessages on payment_request_responses box and parses responses', async () => {
+      const listenSpy = jest.spyOn(peerPayClient, 'listenForLiveMessages').mockResolvedValue(undefined)
+      const onResponse = jest.fn()
+
+      await peerPayClient.listenForLivePaymentRequestResponses({ onResponse })
+
+      expect(listenSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ messageBox: 'payment_request_responses' })
+      )
+
+      // Simulate a message arriving
+      const { onMessage } = (listenSpy.mock.calls[0][0] as any)
+      onMessage({
+        messageId: 'live-resp-1',
+        sender: 'payer1',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+        body: JSON.stringify({ requestId: 'req-1', status: 'paid', amountPaid: 5000 })
+      })
+
+      expect(onResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'req-1', status: 'paid', amountPaid: 5000 })
+      )
+    })
+  })
+
   // Test: requestPayment
   describe('requestPayment', () => {
     it('sends payment request message to payment_requests box with correct body fields', async () => {
