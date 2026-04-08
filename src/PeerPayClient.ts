@@ -410,6 +410,74 @@ export class PeerPayClient extends MessageBoxClient {
   }
 
   /**
+   * Fulfills an incoming payment request by sending the requested payment and
+   * notifying the requester with a 'paid' response in the payment_request_responses box.
+   * Also acknowledges the original request message.
+   *
+   * @param {Object} params - Fulfillment parameters.
+   * @param {IncomingPaymentRequest} params.request - The incoming payment request to fulfill.
+   * @param {number} [params.amount] - Optional amount override (defaults to request.amount).
+   * @param {string} [params.note] - Optional note to include in the response.
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @returns {Promise<void>} Resolves when payment is sent and acknowledgment is complete.
+   */
+  async fulfillPaymentRequest (
+    params: { request: IncomingPaymentRequest, amount?: number, note?: string },
+    hostOverride?: string
+  ): Promise<void> {
+    const { request, note } = params
+    const amount = params.amount ?? request.amount
+
+    await this.sendPayment({ recipient: request.sender, amount }, hostOverride)
+
+    const response: PaymentRequestResponse = {
+      requestId: request.requestId,
+      status: 'paid',
+      amountPaid: amount,
+      ...(note != null && { note })
+    }
+
+    await this.sendMessage({
+      recipient: request.sender,
+      messageBox: PAYMENT_REQUEST_RESPONSES_MESSAGEBOX,
+      body: JSON.stringify(response)
+    }, hostOverride)
+
+    await this.acknowledgeMessage({ messageIds: [request.messageId] })
+  }
+
+  /**
+   * Declines an incoming payment request by notifying the requester with a 'declined'
+   * response in the payment_request_responses box and acknowledging the original request.
+   *
+   * @param {Object} params - Decline parameters.
+   * @param {IncomingPaymentRequest} params.request - The incoming payment request to decline.
+   * @param {string} [params.note] - Optional note explaining why the request was declined.
+   * @param {string} [hostOverride] - Optional host override for the message box server.
+   * @returns {Promise<void>} Resolves when the response is sent and request is acknowledged.
+   */
+  async declinePaymentRequest (
+    params: { request: IncomingPaymentRequest, note?: string },
+    hostOverride?: string
+  ): Promise<void> {
+    const { request, note } = params
+
+    const response: PaymentRequestResponse = {
+      requestId: request.requestId,
+      status: 'declined',
+      ...(note != null && { note })
+    }
+
+    await this.sendMessage({
+      recipient: request.sender,
+      messageBox: PAYMENT_REQUEST_RESPONSES_MESSAGEBOX,
+      body: JSON.stringify(response)
+    }, hostOverride)
+
+    await this.acknowledgeMessage({ messageIds: [request.messageId] })
+  }
+
+  /**
    * Sends a payment request to a recipient via the payment_requests message box.
    *
    * Generates a unique requestId using createNonce, looks up the caller's identity key,

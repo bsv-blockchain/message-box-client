@@ -420,6 +420,101 @@ describe('PeerPayClient Unit Tests', () => {
     })
   })
 
+  // Test: fulfillPaymentRequest
+  describe('fulfillPaymentRequest', () => {
+    const mockRequest = {
+      messageId: 'req-msg-1',
+      sender: 'senderKey',
+      requestId: 'req-id-1',
+      amount: 5000,
+      description: 'Pay for goods',
+      expiresAt: Date.now() + 60000
+    }
+
+    it('sends payment via sendPayment(), sends paid response to payment_request_responses, acknowledges original request', async () => {
+      const sendPaymentSpy = jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined)
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'resp-msg-id'
+      })
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      await peerPayClient.fulfillPaymentRequest({ request: mockRequest })
+
+      expect(sendPaymentSpy).toHaveBeenCalledWith(
+        { recipient: 'senderKey', amount: 5000 },
+        undefined
+      )
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: 'senderKey',
+          messageBox: 'payment_request_responses'
+        }),
+        undefined
+      )
+
+      const responseBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
+      expect(responseBody).toMatchObject({ requestId: 'req-id-1', status: 'paid' })
+
+      expect(ackSpy).toHaveBeenCalledWith({ messageIds: ['req-msg-1'] })
+    })
+
+    it('allows amount and note to be overridden', async () => {
+      const sendPaymentSpy = jest.spyOn(peerPayClient, 'sendPayment').mockResolvedValue(undefined)
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'resp-msg-id'
+      })
+      jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      await peerPayClient.fulfillPaymentRequest({ request: mockRequest, amount: 4500, note: 'Here you go' })
+
+      expect(sendPaymentSpy).toHaveBeenCalledWith(
+        { recipient: 'senderKey', amount: 4500 },
+        undefined
+      )
+
+      const responseBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
+      expect(responseBody).toMatchObject({ requestId: 'req-id-1', status: 'paid', amountPaid: 4500, note: 'Here you go' })
+    })
+  })
+
+  // Test: declinePaymentRequest
+  describe('declinePaymentRequest', () => {
+    const mockRequest = {
+      messageId: 'req-msg-2',
+      sender: 'senderKey2',
+      requestId: 'req-id-2',
+      amount: 3000,
+      description: 'Pay for service',
+      expiresAt: Date.now() + 60000
+    }
+
+    it('sends declined response to payment_request_responses and acknowledges request', async () => {
+      const sendMessageSpy = jest.spyOn(peerPayClient, 'sendMessage').mockResolvedValue({
+        status: 'success',
+        messageId: 'resp-msg-id'
+      })
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      await peerPayClient.declinePaymentRequest({ request: mockRequest, note: 'Not today' })
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: 'senderKey2',
+          messageBox: 'payment_request_responses'
+        }),
+        undefined
+      )
+
+      const responseBody = JSON.parse((sendMessageSpy.mock.calls[0][0] as any).body)
+      expect(responseBody).toMatchObject({ requestId: 'req-id-2', status: 'declined', note: 'Not today' })
+
+      expect(ackSpy).toHaveBeenCalledWith({ messageIds: ['req-msg-2'] })
+    })
+  })
+
   // Test: requestPayment
   describe('requestPayment', () => {
     it('sends payment request message to payment_requests box with correct body fields', async () => {
