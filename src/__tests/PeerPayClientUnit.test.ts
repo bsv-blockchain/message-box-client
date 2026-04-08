@@ -37,7 +37,7 @@ jest.mock('@bsv/sdk', () => {
       createHmac: jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({
         hmac: [1, 2, 3, 4, 5]
       }),
-      verifyHmac: jest.fn().mockResolvedValue({ valid: true })
+      verifyHmac: jest.fn<() => Promise<{ valid: true }>>().mockResolvedValue({ valid: true as const })
     }))
   }
 })

@@ -27,7 +27,8 @@ jest.mock('@bsv/sdk', () => {
       internalizeAction: jest.fn(),
       createHmac: jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({
         hmac: [1, 2, 3, 4, 5]
-      })
+      }),
+      verifyHmac: jest.fn<() => Promise<{ valid: true }>>().mockResolvedValue({ valid: true as const })
     }))
   }
 })
@@ -159,13 +160,9 @@ describe('PeerPayClient — Integration: payment request flow', () => {
 
     mockWalletRequester = new WalletClient() as jest.Mocked<WalletClient>
     mockWalletRequester.getPublicKey.mockResolvedValue({ publicKey: REQUESTER_KEY })
-    mockWalletRequester.createHmac = jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({ hmac: [1, 2, 3, 4, 5] })
-    mockWalletRequester.verifyHmac = jest.fn().mockResolvedValue({ valid: true })
 
     mockWalletPayer = new WalletClient() as jest.Mocked<WalletClient>
     mockWalletPayer.getPublicKey.mockResolvedValue({ publicKey: PAYER_KEY })
-    mockWalletPayer.createHmac = jest.fn<() => Promise<CreateHmacResult>>().mockResolvedValue({ hmac: [1, 2, 3, 4, 5] })
-    mockWalletPayer.verifyHmac = jest.fn().mockResolvedValue({ valid: true })
   })
 
   // -------------------------------------------------------------------------
