@@ -24,6 +24,30 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [2.0.7] - 2026-04-08
+
+### Added
+
+- Payment request methods on PeerPayClient:
+  - `requestPayment()` — send a payment request to a recipient
+  - `cancelPaymentRequest()` — cancel a pending request
+  - `listIncomingPaymentRequests()` — list requests with expiry, cancellation, and min/max amount filtering
+  - `fulfillPaymentRequest()` — pay a request and send status response
+  - `declinePaymentRequest()` — decline a request with optional note
+  - `listPaymentRequestResponses()` — list responses to outgoing requests
+  - `listenForLivePaymentRequests()` — WebSocket listener for incoming requests
+  - `listenForLivePaymentRequestResponses()` — WebSocket listener for responses
+- Permission management for payment requests:
+  - `allowPaymentRequestsFrom()` — whitelist an identity
+  - `blockPaymentRequestsFrom()` — block an identity
+  - `listPaymentRequestPermissions()` — list whitelisted/blocked identities
+- New message box constants: `PAYMENT_REQUESTS_MESSAGEBOX`, `PAYMENT_REQUEST_RESPONSES_MESSAGEBOX`
+- New types: `PaymentRequestMessage`, `PaymentRequestResponse`, `IncomingPaymentRequest`, `PaymentRequestLimits`
+- Unit tests for all 11 new methods
+- Integration tests for full round-trip payment request flows
+
+---
+
 ## [2.0.1] - 2026-02-16
 
 ### Changed
