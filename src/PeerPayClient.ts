@@ -158,10 +158,14 @@ export class PeerPayClient extends MessageBoxClient {
    */
   async listPaymentRequestPermissions (): Promise<Array<{ identityKey: string, allowed: boolean }>> {
     const permissions = await this.listMessageBoxPermissions({ messageBox: PAYMENT_REQUESTS_MESSAGEBOX })
-    return permissions.map(p => ({
-      identityKey: p.sender ?? '',
-      allowed: p.recipientFee >= 0
-    }))
+    // Filter to only per-sender entries (sender is not null/empty).
+    // Use the status field returned by the server to determine allowed state.
+    return permissions
+      .filter(p => p.sender != null && p.sender !== '')
+      .map(p => ({
+        identityKey: p.sender ?? '',
+        allowed: p.status !== 'blocked'
+      }))
   }
 
   /**
