@@ -20,6 +20,11 @@ function toNumberArray (tx: AtomicBEEF): number[] {
   return Array.isArray(tx) ? tx : Array.from(tx)
 }
 
+function hexToBytes (hex: string): number[] {
+  const matches = hex.match(/.{1,2}/g)
+  return matches != null ? matches.map(byte => parseInt(byte, 16)) : []
+}
+
 function safeParse<T> (input: any): T | undefined {
   try {
     return typeof input === 'string' ? JSON.parse(input) : input
@@ -727,7 +732,7 @@ export class PeerPayClient extends MessageBoxClient {
           const proofData = Array.from(new TextEncoder().encode(item.body.requestId + myIdentityKey))
           await this.peerPayWalletClient.verifyHmac({
             data: proofData,
-            hmac: Array.from(Buffer.from(item.body.requestProof, 'hex')),
+            hmac: hexToBytes(item.body.requestProof),
             protocolID: [2, 'payment request auth'],
             keyID: item.body.requestId,
             counterparty: item.sender
@@ -778,7 +783,7 @@ export class PeerPayClient extends MessageBoxClient {
         const proofData = Array.from(new TextEncoder().encode(requestId + myIdentityKey))
         await this.peerPayWalletClient.verifyHmac({
           data: proofData,
-          hmac: Array.from(Buffer.from(item.body.requestProof, 'hex')),
+          hmac: hexToBytes(item.body.requestProof),
           protocolID: [2, 'payment request auth'],
           keyID: requestId,
           counterparty: item.sender
