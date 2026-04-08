@@ -116,6 +116,55 @@ export class PeerPayClient extends MessageBoxClient {
   }
 
   /**
+   * Allows payment requests from a specific identity key by setting
+   * the recipientFee to 0 for the payment_requests message box.
+   *
+   * @param {Object} params - Parameters.
+   * @param {string} params.identityKey - The identity key to allow payment requests from.
+   * @returns {Promise<void>} Resolves when the permission is set.
+   */
+  async allowPaymentRequestsFrom ({ identityKey }: { identityKey: string }): Promise<void> {
+    await this.setMessageBoxPermission({
+      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+      sender: identityKey,
+      recipientFee: 0
+    })
+  }
+
+  /**
+   * Blocks payment requests from a specific identity key by setting
+   * the recipientFee to -1 for the payment_requests message box.
+   *
+   * @param {Object} params - Parameters.
+   * @param {string} params.identityKey - The identity key to block payment requests from.
+   * @returns {Promise<void>} Resolves when the permission is set.
+   */
+  async blockPaymentRequestsFrom ({ identityKey }: { identityKey: string }): Promise<void> {
+    await this.setMessageBoxPermission({
+      messageBox: PAYMENT_REQUESTS_MESSAGEBOX,
+      sender: identityKey,
+      recipientFee: -1
+    })
+  }
+
+  /**
+   * Lists all permissions for the payment_requests message box, mapped to
+   * a simplified { identityKey, allowed } structure.
+   *
+   * A permission is considered "allowed" if recipientFee >= 0 (0 = always allow,
+   * positive = payment required). A recipientFee of -1 means blocked.
+   *
+   * @returns {Promise<Array<{ identityKey: string, allowed: boolean }>>} Resolved with the list of permissions.
+   */
+  async listPaymentRequestPermissions (): Promise<Array<{ identityKey: string, allowed: boolean }>> {
+    const permissions = await this.listMessageBoxPermissions({ messageBox: PAYMENT_REQUESTS_MESSAGEBOX })
+    return permissions.map(p => ({
+      identityKey: p.sender ?? '',
+      allowed: p.recipientFee >= 0
+    }))
+  }
+
+  /**
    * Generates a valid payment token for a recipient.
    *
    * This function derives a unique public key for the recipient, constructs a P2PKH locking script,

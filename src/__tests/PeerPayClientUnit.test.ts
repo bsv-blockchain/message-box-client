@@ -605,6 +605,66 @@ describe('PeerPayClient Unit Tests', () => {
     })
   })
 
+  // Test: allowPaymentRequestsFrom
+  describe('allowPaymentRequestsFrom', () => {
+    it('calls setMessageBoxPermission with messageBox=payment_requests and recipientFee=0', async () => {
+      const setPermSpy = jest.spyOn(peerPayClient, 'setMessageBoxPermission').mockResolvedValue(undefined)
+
+      await peerPayClient.allowPaymentRequestsFrom({ identityKey: 'trustedKey' })
+
+      expect(setPermSpy).toHaveBeenCalledWith({
+        messageBox: 'payment_requests',
+        sender: 'trustedKey',
+        recipientFee: 0
+      })
+    })
+  })
+
+  // Test: blockPaymentRequestsFrom
+  describe('blockPaymentRequestsFrom', () => {
+    it('calls setMessageBoxPermission with recipientFee=-1', async () => {
+      const setPermSpy = jest.spyOn(peerPayClient, 'setMessageBoxPermission').mockResolvedValue(undefined)
+
+      await peerPayClient.blockPaymentRequestsFrom({ identityKey: 'blockedKey' })
+
+      expect(setPermSpy).toHaveBeenCalledWith({
+        messageBox: 'payment_requests',
+        sender: 'blockedKey',
+        recipientFee: -1
+      })
+    })
+  })
+
+  // Test: listPaymentRequestPermissions
+  describe('listPaymentRequestPermissions', () => {
+    it('calls listMessageBoxPermissions and maps to { identityKey, allowed } array', async () => {
+      jest.spyOn(peerPayClient, 'listMessageBoxPermissions').mockResolvedValue([
+        {
+          sender: 'key1',
+          messageBox: 'payment_requests',
+          recipientFee: 0,
+          status: 'always_allow',
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z'
+        },
+        {
+          sender: 'key2',
+          messageBox: 'payment_requests',
+          recipientFee: -1,
+          status: 'blocked',
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z'
+        }
+      ])
+
+      const permissions = await peerPayClient.listPaymentRequestPermissions()
+
+      expect(permissions).toHaveLength(2)
+      expect(permissions[0]).toEqual({ identityKey: 'key1', allowed: true })
+      expect(permissions[1]).toEqual({ identityKey: 'key2', allowed: false })
+    })
+  })
+
   // Test: requestPayment
   describe('requestPayment', () => {
     it('sends payment request message to payment_requests box with correct body fields', async () => {
