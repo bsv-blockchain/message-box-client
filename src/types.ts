@@ -187,3 +187,69 @@ export interface ListDevicesResponse {
   devices: RegisteredDevice[]
   description?: string // For error responses
 }
+
+/**
+ * Represents a payment request message sent from a requester to a payer.
+ * Carried in the 'payment_requests' message box.
+ */
+export interface PaymentRequestMessage {
+  /** Unique identifier for this request, generated via createNonce(). */
+  requestId: string
+  /** Amount in satoshis being requested. */
+  amount: number
+  /** Human-readable reason for the request. */
+  description: string
+  /** Unix timestamp (ms) after which the request expires. Set by the sender. */
+  expiresAt: number
+  /** Identity key of the requester, used for correlation on the payer's side. */
+  senderIdentityKey: string
+  /** If true, this message cancels a previously sent request with the same requestId. */
+  cancelled?: boolean
+}
+
+/**
+ * Represents a response to a payment request, sent from the payer back to the requester.
+ * Carried in the 'payment_request_responses' message box.
+ */
+export interface PaymentRequestResponse {
+  /** The requestId of the original PaymentRequestMessage this responds to. */
+  requestId: string
+  /** Status of the response. */
+  status: 'paid' | 'declined'
+  /** Optional note from the payer. */
+  note?: string
+  /** Actual amount paid in satoshis (may differ from the requested amount). */
+  amountPaid?: number
+}
+
+/**
+ * Represents an incoming payment request as returned by listIncomingPaymentRequests().
+ * Combines the transport message metadata with the parsed request body.
+ */
+export interface IncomingPaymentRequest {
+  /** Transport message ID used for acknowledgment. */
+  messageId: string
+  /** Identity key of the requester. */
+  sender: string
+  /** Unique identifier for this request. */
+  requestId: string
+  /** Amount in satoshis requested. */
+  amount: number
+  /** Human-readable reason for the request. */
+  description: string
+  /** Unix timestamp (ms) when the request expires. */
+  expiresAt: number
+  /** If true, this is a cancellation of a previous request. */
+  cancelled?: boolean
+}
+
+/**
+ * Configurable min/max amount limits for incoming payment requests.
+ * Requests outside these bounds are auto-acknowledged and discarded.
+ */
+export interface PaymentRequestLimits {
+  /** Minimum satoshis to accept in a request. Requests below this are discarded. Default: 1000. */
+  minAmount: number
+  /** Maximum satoshis to accept in a request. Requests above this are discarded. Default: 10000000. */
+  maxAmount: number
+}
