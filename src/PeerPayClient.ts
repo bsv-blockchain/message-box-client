@@ -20,15 +20,25 @@ function toNumberArray (tx: AtomicBEEF): number[] {
   return Array.isArray(tx) ? tx : Array.from(tx)
 }
 
-function safeParse<T> (input: any): T {
+function safeParse<T> (input: any): T | undefined {
   try {
     return typeof input === 'string' ? JSON.parse(input) : input
   } catch (e) {
     Logger.error('[PP CLIENT] Failed to parse input in safeParse:', input)
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-    const fallback = {} as T
-    return fallback
+    return undefined
   }
+}
+
+/**
+ * Validates that a parsed object has the required fields for a PaymentRequestMessage.
+ * Returns true for both new requests (has amount, description, expiresAt) and cancellations (has cancelled: true).
+ */
+function isValidPaymentRequestMessage (obj: any): obj is PaymentRequestMessage {
+  if (typeof obj !== 'object' || obj === null) return false
+  if (typeof obj.requestId !== 'string') return false
+  if (typeof obj.senderIdentityKey !== 'string') return false
+  if (obj.cancelled === true) return true
+  return typeof obj.amount === 'number' && typeof obj.description === 'string' && typeof obj.expiresAt === 'number'
 }
 
 export const STANDARD_PAYMENT_MESSAGEBOX = 'payment_inbox'
@@ -312,10 +322,12 @@ export class PeerPayClient extends MessageBoxClient {
       // Convert PeerMessage → IncomingPayment before calling onPayment
       onMessage: (message: PeerMessage) => {
         Logger.log('[MB CLIENT] Received Live Payment:', message)
+        const token = safeParse<PaymentToken>(message.body)
+        if (token == null) return
         const incomingPayment: IncomingPayment = {
           messageId: message.messageId,
           sender: message.sender,
-          token: safeParse<PaymentToken>(message.body)
+          token
         }
         Logger.log('[PP CLIENT] Converted PeerMessage to IncomingPayment:', incomingPayment)
         onPayment(incomingPayment)
@@ -453,13 +465,14 @@ export class PeerPayClient extends MessageBoxClient {
     const messages = await this.listMessages({ messageBox: this.messageBox, host: overrideHost })
     return messages.map((msg: any) => {
       const parsedToken = safeParse<PaymentToken>(msg.body)
+      if (parsedToken == null) return null
 
       return {
         messageId: msg.messageId,
         sender: msg.sender,
         token: parsedToken
       }
-    })
+    }).filter((p): p is IncomingPayment => p != null)
   }
 
   /**
@@ -473,6 +486,7 @@ export class PeerPayClient extends MessageBoxClient {
   async listPaymentRequestResponses (hostOverride?: string): Promise<PaymentRequestResponse[]> {
     const messages = await this.listMessages({ messageBox: PAYMENT_REQUEST_RESPONSES_MESSAGEBOX, host: hostOverride })
     return messages.map((msg: any) => safeParse<PaymentRequestResponse>(msg.body))
+      .filter((r): r is PaymentRequestResponse => r != null)
   }
 
   /**
@@ -535,6 +549,7 @@ export class PeerPayClient extends MessageBoxClient {
       overrideHost,
       onMessage: (message: PeerMessage) => {
         const response = safeParse<PaymentRequestResponse>(message.body)
+        if (response == null) return
         onResponse(response)
       }
     })
@@ -677,19 +692,25 @@ export class PeerPayClient extends MessageBoxClient {
     const messages = await this.listMessages({ messageBox: PAYMENT_REQUESTS_MESSAGEBOX, host: hostOverride })
     const now = Date.now()
 
-    // Parse all messages
-    const parsed = messages.map((msg: any) => ({
-      messageId: msg.messageId as string,
-      sender: msg.sender as string,
-      body: safeParse<PaymentRequestMessage>(msg.body)
-    }))
+    // Parse and validate all messages, collecting malformed ones for ack
+    const malformedMessageIds: string[] = []
+    const parsed: Array<{ messageId: string, sender: string, body: PaymentRequestMessage }> = []
 
-    // Collect cancelled requestIds and their cancel message IDs
-    const cancelledRequestIds = new Set<string>()
+    for (const msg of messages) {
+      const body = safeParse<PaymentRequestMessage>(msg.body)
+      if (body != null && isValidPaymentRequestMessage(body)) {
+        parsed.push({ messageId: msg.messageId as string, sender: msg.sender as string, body })
+      } else {
+        malformedMessageIds.push(msg.messageId as string)
+      }
+    }
+
+    // Collect cancelled requestIds — only from same sender (prevents spoofing)
+    const cancelledRequests = new Map<string, string>() // requestId → sender
     const cancelMessageIds: string[] = []
     for (const item of parsed) {
       if (item.body.cancelled === true) {
-        cancelledRequestIds.add(item.body.requestId)
+        cancelledRequests.set(item.body.requestId, item.sender)
         cancelMessageIds.push(item.messageId)
       }
     }
@@ -711,18 +732,18 @@ export class PeerPayClient extends MessageBoxClient {
         continue
       }
 
-      // Filter cancelled originals
-      if (cancelledRequestIds.has(requestId)) {
+      // Filter cancelled originals — only if cancellation came from the same sender
+      if (cancelledRequests.has(requestId) && cancelledRequests.get(requestId) === item.sender) {
         cancelledOriginalMessageIds.push(item.messageId)
         continue
       }
 
-      // Filter out-of-range when limits provided
-      if (limits != null) {
-        if (amount < limits.minAmount || amount > limits.maxAmount) {
-          outOfRangeMessageIds.push(item.messageId)
-          continue
-        }
+      // Filter out-of-range — apply defaults for any missing limit fields
+      const effectiveMin = limits?.minAmount ?? DEFAULT_PAYMENT_REQUEST_MIN_AMOUNT
+      const effectiveMax = limits?.maxAmount ?? DEFAULT_PAYMENT_REQUEST_MAX_AMOUNT
+      if (amount < effectiveMin || amount > effectiveMax) {
+        outOfRangeMessageIds.push(item.messageId)
+        continue
       }
 
       active.push({
@@ -737,18 +758,23 @@ export class PeerPayClient extends MessageBoxClient {
 
     // Acknowledge expired
     if (expiredMessageIds.length > 0) {
-      await this.acknowledgeMessage({ messageIds: expiredMessageIds })
+      await this.acknowledgeMessage({ messageIds: expiredMessageIds, host: hostOverride })
     }
 
     // Acknowledge cancelled originals + cancel messages together
     const cancelAckIds = [...cancelledOriginalMessageIds, ...cancelMessageIds]
     if (cancelAckIds.length > 0) {
-      await this.acknowledgeMessage({ messageIds: cancelAckIds })
+      await this.acknowledgeMessage({ messageIds: cancelAckIds, host: hostOverride })
     }
 
     // Acknowledge out-of-range
     if (outOfRangeMessageIds.length > 0) {
-      await this.acknowledgeMessage({ messageIds: outOfRangeMessageIds })
+      await this.acknowledgeMessage({ messageIds: outOfRangeMessageIds, host: hostOverride })
+    }
+
+    // Acknowledge malformed messages so they don't reappear
+    if (malformedMessageIds.length > 0) {
+      await this.acknowledgeMessage({ messageIds: malformedMessageIds, host: hostOverride })
     }
 
     return active

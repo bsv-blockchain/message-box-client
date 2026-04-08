@@ -368,6 +368,97 @@ describe('PeerPayClient Unit Tests', () => {
       expect(ackSpy).toHaveBeenCalledWith({ messageIds: expect.arrayContaining(['original-msg', 'cancel-msg']) })
     })
 
+    it('discards malformed messages (invalid JSON) and acknowledges them', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'bad-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: 'NOT VALID JSON {{{}'
+        },
+        {
+          messageId: 'good-msg',
+          sender: 'sender2',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-good',
+            amount: 5000,
+            description: 'Valid request',
+            expiresAt: Date.now() + 60000,
+            senderIdentityKey: 'sender2'
+          })
+        }
+      ])
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0].requestId).toBe('req-good')
+      expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({
+        messageIds: expect.arrayContaining(['bad-msg'])
+      }))
+    })
+
+    it('discards messages with missing required fields and acknowledges them', async () => {
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'incomplete-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({ requestId: 'req-incomplete' })
+        }
+      ])
+      const ackSpy = jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      expect(requests).toHaveLength(0)
+      expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({
+        messageIds: expect.arrayContaining(['incomplete-msg'])
+      }))
+    })
+
+    it('only cancels requests from the same sender', async () => {
+      const futureExpiry = Date.now() + 60000
+      jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
+        {
+          messageId: 'original-msg',
+          sender: 'sender1',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+          body: JSON.stringify({
+            requestId: 'req-1',
+            amount: 5000,
+            description: 'Real request',
+            expiresAt: futureExpiry,
+            senderIdentityKey: 'sender1'
+          })
+        },
+        {
+          messageId: 'spoofed-cancel',
+          sender: 'attacker',
+          created_at: '2025-01-01T00:01:00Z',
+          updated_at: '2025-01-01T00:01:00Z',
+          body: JSON.stringify({
+            requestId: 'req-1',
+            senderIdentityKey: 'attacker',
+            cancelled: true
+          })
+        }
+      ])
+      jest.spyOn(peerPayClient, 'acknowledgeMessage').mockResolvedValue('ok')
+
+      const requests = await peerPayClient.listIncomingPaymentRequests()
+
+      // The request should NOT be cancelled because the cancel came from a different sender
+      expect(requests).toHaveLength(1)
+      expect(requests[0].requestId).toBe('req-1')
+    })
+
     it('filters out requests below minAmount and above maxAmount, acknowledges them', async () => {
       jest.spyOn(peerPayClient, 'listMessages').mockResolvedValue([
         {
