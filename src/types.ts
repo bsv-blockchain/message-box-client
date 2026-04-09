@@ -187,3 +187,98 @@ export interface ListDevicesResponse {
   devices: RegisteredDevice[]
   description?: string // For error responses
 }
+
+/**
+ * Base fields shared by both payment request and cancellation messages.
+ */
+interface PaymentRequestBase {
+  /** Unique identifier for this request, generated via createNonce(). */
+  requestId: string
+  /** Identity key of the requester, used for correlation and cancellation verification. */
+  senderIdentityKey: string
+}
+
+/**
+ * A new payment request sent from requester to payer.
+ * Carried in the 'payment_requests' message box.
+ */
+export interface PaymentRequestNew extends PaymentRequestBase {
+  /** Amount in satoshis being requested. */
+  amount: number
+  /** Human-readable reason for the request. */
+  description: string
+  /** Unix timestamp (ms) after which the request expires. Set by the sender. */
+  expiresAt: number
+  /** HMAC proof tying this request to the sender's identity. Used to authorize cancellations. */
+  requestProof: string
+  /** Omitted or false for a new payment request. */
+  cancelled?: false
+}
+
+/**
+ * A cancellation of a previously sent payment request.
+ * Carried in the 'payment_requests' message box.
+ */
+export interface PaymentRequestCancellation extends PaymentRequestBase {
+  /** If true, this message cancels a previously sent request with the same requestId. */
+  cancelled: true
+  /** HMAC proof from the original request, proving cancellation authority. */
+  requestProof: string
+}
+
+/**
+ * Discriminated union: either a new payment request or a cancellation.
+ * Discriminant field: `cancelled` (true = cancellation, absent/false = new request).
+ */
+export type PaymentRequestMessage = PaymentRequestNew | PaymentRequestCancellation
+
+/**
+ * Represents a response to a payment request, sent from the payer back to the requester.
+ * Carried in the 'payment_request_responses' message box.
+ */
+export interface PaymentRequestResponse {
+  /** The requestId of the original PaymentRequestMessage this responds to. */
+  requestId: string
+  /** Status of the response. */
+  status: 'paid' | 'declined'
+  /** Optional note from the payer. */
+  note?: string
+  /** Actual amount paid in satoshis (may differ from the requested amount). */
+  amountPaid?: number
+}
+
+/**
+ * Represents an incoming payment request as returned by listIncomingPaymentRequests().
+ * Combines the transport message metadata with the parsed request body.
+ * Only active (non-cancelled) requests are returned, so cancelled field is omitted.
+ */
+export interface IncomingPaymentRequest {
+  /** Transport message ID used for acknowledgment. */
+  messageId: string
+  /** Identity key of the requester. */
+  sender: string
+  /** Unique identifier for this request. */
+  requestId: string
+  /** Amount in satoshis requested. */
+  amount: number
+  /** Human-readable reason for the request. */
+  description: string
+  /** Unix timestamp (ms) when the request expires. */
+  expiresAt: number
+}
+
+/** Default minimum satoshis for payment request filtering. */
+export const DEFAULT_PAYMENT_REQUEST_MIN_AMOUNT = 1000
+/** Default maximum satoshis for payment request filtering. */
+export const DEFAULT_PAYMENT_REQUEST_MAX_AMOUNT = 10_000_000
+
+/**
+ * Configurable min/max amount limits for incoming payment requests.
+ * Requests outside these bounds are auto-acknowledged and discarded.
+ */
+export interface PaymentRequestLimits {
+  /** Minimum satoshis to accept in a request. Requests below this are discarded. Default: 1000. */
+  minAmount?: number
+  /** Maximum satoshis to accept in a request. Requests above this are discarded. Default: 10000000. */
+  maxAmount?: number
+}
