@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 ## Table of Contents
 
 - [Unreleased](#unreleased)
+- [2.1.0 - 2026-04-20](#210---2026-04-20)
 - [2.0.7 - 2026-04-08](#207---2026-04-08)
 - [2.0.0 - 2026-02-06](#200---2026-02-06)
 - [Template for New Releases](#template-for-new-releases)
@@ -22,6 +23,19 @@ All notable changes to this project will be documented in this file. The format 
 ### Fixed
 
 ### Security
+
+---
+
+## [2.1.0] - 2026-04-20
+
+### Changed
+
+- `init()` no longer automatically calls `anointHost()`. Applications that want to advertise their host on the overlay network must now call `anointHost()` explicitly. The client still initializes correctly and all send/receive/acknowledge operations work without anointing.
+- `sendLiveMessage()` HTTP fallback paths now pass the caller's `overrideHost` through to `sendMessage()` rather than independently resolving the recipient's host. Behavior is equivalent for most callers; the change ensures explicit host overrides are respected end-to-end through fallback paths.
+
+### Security
+
+- Removed automatic overlay advertisement broadcast on client initialization, giving applications explicit control over when their host identity is published to the network.
 
 ---
 
