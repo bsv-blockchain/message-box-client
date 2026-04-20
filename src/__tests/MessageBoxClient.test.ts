@@ -699,14 +699,12 @@ describe('MessageBoxClient', () => {
     expect((client as any).host).toBe('https://new-host.example')
   })
 
-  it('does not anoint when advert already exists', async () => {
-    jest.spyOn(MessageBoxClient.prototype as any, 'queryAdvertisements').mockResolvedValue([{
-      host: 'https://messagebox.babbage.systems'
-    }])
+  it('init() never calls anointHost automatically', async () => {
     const spy = jest.spyOn(MessageBoxClient.prototype as any, 'anointHost')
     await new MessageBoxClient({ walletClient: mockWalletClient }).init()
     expect(spy).not.toHaveBeenCalled()
   })
+
 
   it('resolveHostForRecipient returns the first advertised host', async () => {
     const client = new MessageBoxClient({

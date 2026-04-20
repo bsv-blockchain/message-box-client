@@ -156,29 +156,30 @@ export class MessageBoxClient {
    * @method init
    * @async
    * @param {string} [targetHost] - Optional host to set or override the default host.
-   * @param {string} [originator] - Optional originator to use with walletClient.
    * @returns {Promise<void>}
    *
    * @description
-   * Initializes the MessageBoxClient by setting or anointing a MessageBox host.
+   * Initializes the MessageBoxClient by verifying wallet connectivity and setting the active host.
    *
    * - If the client was constructed with a host, it uses that unless a different targetHost is provided.
-   * - If no prior advertisement exists for the identity key and host, it automatically broadcasts a new advertisement.
    * - After calling init(), the client becomes ready to send, receive, and acknowledge messages.
+   * - To advertise your host on the overlay network, call `anointHost()` explicitly.
    *
    * This method can be called manually for explicit control,
    * but will be automatically invoked if omitted.
-   * @throws {Error} If no valid host is provided, or anointing fails.
+   * @throws {Error} If no valid host is provided, or wallet is unreachable.
    *
    * @example
    * const client = new MessageBoxClient({ host: 'https://mybox.example', walletClient })
    * await client.init()
+   * // Optionally advertise your host on the overlay:
+   * await client.anointHost('https://mybox.example')
    * await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
    */
   async init(targetHost: string = this.host): Promise<void> {
     const normalizedHost = targetHost?.trim()
     if (normalizedHost === '') {
-      throw new Error('Cannot anoint host: No valid host provided')
+      throw new Error('Cannot initialize: No valid host provided')
     }
 
     // Check if this is an override host
@@ -189,23 +190,8 @@ export class MessageBoxClient {
 
     if (this.initialized) return
 
-    // 1. Get our identity key
-    const identityKey = await this.getIdentityKey()
-    // 2. Check for any matching advertisements for the given host
-    const [firstAdvertisement] = await this.queryAdvertisements(identityKey, normalizedHost)
-    // 3. If none our found, anoint this host
-    if (firstAdvertisement == null || firstAdvertisement?.host?.trim() === '' || firstAdvertisement?.host !== normalizedHost) {
-      Logger.log('[MB CLIENT] Anointing host:', normalizedHost)
-      try {
-        const { txid } = await this.anointHost(normalizedHost)
-        if (txid == null || txid.trim() === '') {
-          throw new Error('Failed to anoint host: No transaction ID returned')
-        }
-      } catch (error) {
-        Logger.log('[MB CLIENT] Failed to anoint host, continuing with default functionality:', error)
-        // Continue with default host - client can still function for basic operations
-      }
-    }
+    // Verify wallet is reachable
+    await this.getIdentityKey()
     this.initialized = true
   }
 
@@ -750,8 +736,7 @@ export class MessageBoxClient {
     // Fallback to HTTP if WebSocket is not connected
     if (this.socket == null || !this.socket.connected) {
       Logger.warn('[MB CLIENT WARNING] WebSocket not connected, falling back to HTTP')
-      const targetHost = overrideHost ?? await this.resolveHostForRecipient(recipient)
-      return await this.sendMessage({ recipient, messageBox, body }, targetHost)
+      return await this.sendMessage({ recipient, messageBox, body, messageId, skipEncryption, checkPermissions }, overrideHost)
     }
 
     let finalMessageId: string
@@ -818,10 +803,7 @@ export class MessageBoxClient {
             checkPermissions
           }
 
-          this.resolveHostForRecipient(recipient)
-            .then(async (host) => {
-              return await this.sendMessage(fallbackMessage, host)
-            })
+          this.sendMessage(fallbackMessage, overrideHost)
             .then(resolve)
             .catch(reject)
         } else {
@@ -862,10 +844,7 @@ export class MessageBoxClient {
             checkPermissions
           }
 
-          this.resolveHostForRecipient(recipient)
-            .then(async (host) => {
-              return await this.sendMessage(fallbackMessage, host)
-            })
+          this.sendMessage(fallbackMessage, overrideHost)
             .then(resolve)
             .catch(reject)
         }
