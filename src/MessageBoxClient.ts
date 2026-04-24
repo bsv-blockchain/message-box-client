@@ -18,7 +18,7 @@
  * See BRC-2 for details on the encryption scheme: https://github.com/bitcoin-sv/BRCs/blob/master/wallet/0002.md
  *
  * @module MessageBoxClient
- * @author Project Babbage
+ * @author BSV Blockchain Association
  * @license Open BSV License
  */
 
@@ -56,8 +56,8 @@ import {
   SendListResult
 } from './types/permissions.js'
 
-const DEFAULT_MAINNET_HOST = 'https://messagebox.babbage.systems'
-const DEFAULT_TESTNET_HOST = 'https://staging-messagebox.babbage.systems'
+const DEFAULT_MAINNET_HOST = 'https://message-box-us-1.bsvb.tech'
+const DEFAULT_TESTNET_HOST = DEFAULT_MAINNET_HOST
 
 /**
  * @class MessageBoxClient
@@ -1719,7 +1719,7 @@ export class MessageBoxClient {
    * @example
    * const messages = await client.listMessagesLite({
    *   messageBox: 'notifications',
-   *   host: 'https://messagebox.babbage.systems'
+   *   host: 'https://message-box-us-1.bsvb.tech'
    * })
    * console.log(messages)
    */

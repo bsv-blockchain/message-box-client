@@ -104,7 +104,7 @@ function createWiredClient (params: {
   const { bus, identityKey, walletClient } = params
 
   const client = new PeerPayClient({
-    messageBoxHost: 'https://messagebox.babbage.systems',
+    messageBoxHost: 'https://message-box-us-1.bsvb.tech',
     walletClient
   })
 

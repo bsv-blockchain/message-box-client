@@ -104,7 +104,7 @@ export class PeerPayClient extends MessageBoxClient {
   private readonly settlementModule: Brc29RemittanceModule
 
   constructor (config: PeerPayClientConfig) {
-    const { messageBoxHost = 'https://messagebox.babbage.systems', walletClient, enableLogging = false, originator } = config
+    const { messageBoxHost = 'https://message-box-us-1.bsvb.tech', walletClient, enableLogging = false, originator } = config
 
     // 🔹 Pass enableLogging to MessageBoxClient
     super({ host: messageBoxHost, walletClient, enableLogging, originator })

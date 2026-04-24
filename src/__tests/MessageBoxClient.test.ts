@@ -123,13 +123,13 @@ describe('MessageBoxClient', () => {
   it('Creates an instance of the MessageBoxClient class', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
 
     await messageBoxClient.init()
 
-    expect(messageBoxClient).toHaveProperty('host', 'https://messagebox.babbage.systems')
+    expect(messageBoxClient).toHaveProperty('host', 'https://message-box-us-1.bsvb.tech')
 
     // Ensure the socket is initialized as undefined before connecting
     expect(messageBoxClient.testSocket).toBeUndefined()
@@ -140,7 +140,7 @@ describe('MessageBoxClient', () => {
 
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
 
@@ -159,7 +159,7 @@ describe('MessageBoxClient', () => {
   it('Falls back to HTTP when WebSocket is not initialized', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
 
@@ -191,7 +191,7 @@ describe('MessageBoxClient', () => {
   it('Listens for live messages', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
 
@@ -221,7 +221,7 @@ describe('MessageBoxClient', () => {
   it('Sends a live message', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
 
@@ -278,7 +278,7 @@ describe('MessageBoxClient', () => {
   it('Sends a message', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -305,7 +305,7 @@ describe('MessageBoxClient', () => {
   it('Lists available messages', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -326,7 +326,7 @@ describe('MessageBoxClient', () => {
   it('Acknowledges a message', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -347,7 +347,7 @@ describe('MessageBoxClient', () => {
   it('Throws an error when sendMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -421,7 +421,7 @@ describe('MessageBoxClient', () => {
   it('Throws an error when acknowledgeMessage() API fails', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -440,7 +440,7 @@ describe('MessageBoxClient', () => {
   it('Emits joinRoom event and listens for incoming messages', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -491,7 +491,7 @@ describe('MessageBoxClient', () => {
   it('Handles WebSocket connection and disconnection events', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -516,7 +516,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when recipient is empty in sendLiveMessage', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -545,7 +545,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when recipient is missing in sendMessage', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -572,7 +572,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when messageBox is missing in sendMessage', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -599,7 +599,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when message body is missing in sendMessage', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -626,7 +626,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when messageBox is empty in listMessages', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -643,7 +643,7 @@ describe('MessageBoxClient', () => {
   it('throws an error when messageIds is empty in acknowledgeMessage', async () => {
     const messageBoxClient = new MessageBoxClient({
       walletClient: mockWalletClient,
-      host: 'https://messagebox.babbage.systems',
+      host: 'https://message-box-us-1.bsvb.tech',
       enableLogging: true
     })
     await messageBoxClient.init()
@@ -669,7 +669,7 @@ describe('MessageBoxClient', () => {
     const client = new MessageBoxClient({ walletClient: mockWalletClient })
 
     expect((client as any).initialized).toBe(false)
-    expect((client as any).host).toBe('https://messagebox.babbage.systems')
+    expect((client as any).host).toBe('https://message-box-us-1.bsvb.tech')
   })
 
   it('Calls init() to set up a default host when missing', async () => {

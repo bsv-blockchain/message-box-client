@@ -8,7 +8,7 @@ import { webcrypto } from 'crypto'
 
 jest.setTimeout(20000)
 
-const WS_URL = 'https://messagebox.babbage.systems'
+const WS_URL = 'https://message-box-us-1.bsvb.tech'
 
 let recipientKey: string
 const messageBox = 'testBox'

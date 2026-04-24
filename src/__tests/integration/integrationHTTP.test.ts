@@ -15,7 +15,7 @@ const walletClient = new WalletClient('json-api', 'localhost')
 
 // Initialize MessageBoxClient for HTTP-Only Testing
 const messageBoxClient = new MessageBoxClient({
-  host: 'https://messagebox.babbage.systems',
+  host: 'https://message-box-us-1.bsvb.tech',
   walletClient
 })
 

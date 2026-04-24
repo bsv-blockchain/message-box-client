@@ -30,7 +30,7 @@ The **@bsv/message-box-client** library provides two main tools for peer-to-peer
 
 Both clients use the [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md)-based authentication model. By integrating with a [WalletClient](https://github.com/bitcoin-sv), they can sign and verify messages, ensuring only authorized parties can send and receive.
 
-The examples below use Babbage-hosted MessageBox endpoints where a concrete public host is useful. Those hosts are vendor-operated service defaults, not protocol requirements; applications can use their own MessageBox server or another compatible provider.
+The examples below use the public BSV Blockchain Association MessageBox endpoint where a concrete host is useful. This is a service default, not a protocol requirement; applications can use their own MessageBox server or another compatible provider.
 
 ---
 
@@ -135,7 +135,7 @@ You may still **manually call** `await init()` if you want to control when initi
 Example:
 
 ```ts
-const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems' })
+const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://message-box-us-1.bsvb.tech' })
 
 // Manual init (optional but supported)
 await client.init()
@@ -147,7 +147,7 @@ await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 Example:
 
 ```ts
-const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems' })
+const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://message-box-us-1.bsvb.tech' })
 await client.init() // Must always call init() before using the client
 await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 ```
@@ -198,7 +198,7 @@ async function main() {
 
   // 2) Create a MessageBoxClient, pointing to a MessageBoxServer
   const msgBoxClient = new MessageBoxClient({
-    host: 'https://messagebox.babbage.systems',
+    host: 'https://message-box-us-1.bsvb.tech',
     walletClient: myWallet
   })
 
@@ -905,7 +905,7 @@ new PeerPayClient({
 ```
 
 - **walletClient**: (Required) Your identity/signing wallet.  
-- **messageBoxHost**: (Optional) Base URL of the MessageBoxServer. Defaults to `https://messagebox.babbage.systems`.  
+- **messageBoxHost**: (Optional) Base URL of the MessageBoxServer. Defaults to `https://message-box-us-1.bsvb.tech`.
 - **enableLogging**: (Optional) Enables verbose debug output.
 
 ---

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 ## Table of Contents
 
 - [Unreleased](#unreleased)
+- [2.1.1 - 2026-04-24](#211---2026-04-24)
 - [2.1.0 - 2026-04-20](#210---2026-04-20)
 - [2.0.7 - 2026-04-08](#207---2026-04-08)
 - [2.0.0 - 2026-02-06](#200---2026-02-06)
@@ -23,6 +24,15 @@ All notable changes to this project will be documented in this file. The format 
 ### Fixed
 
 ### Security
+
+---
+
+## [2.1.1] - 2026-04-24
+
+### Changed
+
+- Updated the default MessageBox host to `https://message-box-us-1.bsvb.tech`.
+- Updated documentation and tests to stop referring to legacy hosted endpoints as defaults.
 
 ---
 

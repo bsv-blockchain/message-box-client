@@ -61,7 +61,7 @@ describe('PeerPayClient Unit Tests', () => {
     })
 
     peerPayClient = new PeerPayClient({
-      messageBoxHost: 'https://messagebox.babbage.systems',
+      messageBoxHost: 'https://message-box-us-1.bsvb.tech',
       walletClient: mockWalletClient
     })
   })
