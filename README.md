@@ -30,6 +30,8 @@ The **@bsv/message-box-client** library provides two main tools for peer-to-peer
 
 Both clients use the [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md)-based authentication model. By integrating with a [WalletClient](https://github.com/bitcoin-sv), they can sign and verify messages, ensuring only authorized parties can send and receive.
 
+The examples below use Babbage-hosted MessageBox endpoints where a concrete public host is useful. Those hosts are vendor-operated service defaults, not protocol requirements; applications can use their own MessageBox server or another compatible provider.
+
 ---
 
 ## 2. Installation
@@ -133,7 +135,7 @@ You may still **manually call** `await init()` if you want to control when initi
 Example:
 
 ```ts
-const client = new MessageBoxClient({ walletClient, host: 'https://messagebox.babbage.systems' })
+const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems' })
 
 // Manual init (optional but supported)
 await client.init()
@@ -145,7 +147,7 @@ await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 Example:
 
 ```ts
-const client = new MessageBoxClient({ walletClient, host: 'https://messagebox.babbage.systems' })
+const client = new MessageBoxClient({ walletClient, host: process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems' })
 await client.init() // Must always call init() before using the client
 await client.sendMessage({ recipient, messageBox: 'inbox', body: 'Hello' })
 ```

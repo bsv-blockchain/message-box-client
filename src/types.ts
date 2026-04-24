@@ -11,7 +11,8 @@ export interface MessageBoxClientOptions {
   walletClient?: WalletInterface
 
   /**
-   * Base URL of the MessageBox server.
+   * Base URL of the MessageBox server. The default is a Babbage-hosted
+   * public service endpoint; applications may use any compatible provider.
    * @default 'https://messagebox.babbage.systems'
    */
   host?: string
