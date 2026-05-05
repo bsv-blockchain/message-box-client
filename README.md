@@ -1,5 +1,9 @@
 # BSV Peer-to-Peer Messaging & Payment Tools
 
+> **⚠️ This repository is being archived.**
+>
+> Development has moved to the [ts-stack monorepo](https://github.com/bsv-blockchain/ts-stack/tree/main/packages/messaging/message-box-client). Open issues will be migrated there. This repository will be archived in the coming days — please open new issues and PRs in the monorepo going forward.
+
 **@bsv/message-box-client** is a toolkit for **peer-to-peer messaging and payments** on the BSV blockchain. It leverages a server-side **store-and-forward** system for message delivery (via `MessageBoxClient`) and also includes a higher-level **peer-to-peer payment** flow (via `PeerPayClient`). Both functionalities build on [BRC-103](https://github.com/bitcoin-sv/BRCs/blob/master/peer-to-peer/0103.md) for mutual authentication and identity key management, allowing secure and  authenticated exchanges of data and BSV.
 
 ## Table of Contents
